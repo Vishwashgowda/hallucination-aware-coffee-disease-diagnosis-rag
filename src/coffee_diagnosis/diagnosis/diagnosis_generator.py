@@ -249,23 +249,40 @@ Provide the diagnosis now:"""
         # Extract reason, treatment, prevention from specific sections
         full_text = response_text
 
-        # Extract reason
+        # Extract reason - find up to next section or new line pattern
+        reason = "Based on symptoms provided"
         if 'reason:' in full_text.lower():
-            reason_start = full_text.lower().find('reason:')
-            reason_section = full_text[reason_start:].split('\n')[1:3]
-            reason = ' '.join([line.strip() for line in reason_section if line.strip()])[:200]
+            reason_start = full_text.lower().find('reason:') + len('reason:')
+            reason_end = full_text.lower().find('\n-', reason_start)
+            if reason_end == -1:
+                reason_end = full_text.lower().find('symptoms match:', reason_start)
+            if reason_end == -1:
+                reason_end = len(full_text)
+            reason = full_text[reason_start:reason_end].strip()[:300]
 
-        # Extract treatment
+        # Extract treatment - find up to next section or new line pattern
+        treatment = "Consult agricultural expert"
         if 'treatment:' in full_text.lower():
-            treatment_start = full_text.lower().find('treatment:')
-            treatment_section = full_text[treatment_start:].split('\n')[1:3]
-            treatment = ' '.join([line.strip() for line in treatment_section if line.strip()])[:200]
+            treatment_start = full_text.lower().find('treatment:') + len('treatment:')
+            treatment_end = full_text.lower().find('\n-', treatment_start)
+            if treatment_end == -1:
+                treatment_end = full_text.lower().find('prevention:', treatment_start)
+            if treatment_end == -1:
+                treatment_end = full_text.lower().find('source pdf:', treatment_start)
+            if treatment_end == -1:
+                treatment_end = len(full_text)
+            treatment = full_text[treatment_start:treatment_end].strip()[:500]
 
-        # Extract prevention
+        # Extract prevention - find up to next section or new line pattern
+        prevention = "Preventive measures recommended"
         if 'prevention:' in full_text.lower():
-            prevention_start = full_text.lower().find('prevention:')
-            prevention_section = full_text[prevention_start:].split('\n')[1:3]
-            prevention = ' '.join([line.strip() for line in prevention_section if line.strip()])[:200]
+            prevention_start = full_text.lower().find('prevention:') + len('prevention:')
+            prevention_end = full_text.lower().find('\n-', prevention_start)
+            if prevention_end == -1:
+                prevention_end = full_text.lower().find('source pdf:', prevention_start)
+            if prevention_end == -1:
+                prevention_end = len(full_text)
+            prevention = full_text[prevention_start:prevention_end].strip()[:500]
 
         return Diagnosis(
             disease_name=disease_name,
