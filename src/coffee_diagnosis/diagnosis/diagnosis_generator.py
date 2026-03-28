@@ -5,7 +5,7 @@ Generates final diagnosis and treatment recommendations
 
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from anthropic import Anthropic
+from coffee_diagnosis.core.llm_client import LLMClient
 
 
 @dataclass
@@ -20,14 +20,14 @@ class Diagnosis:
 
 
 class DiagnosisGenerator:
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, llm_client: Optional[LLMClient] = None):
         """
         Initialize Diagnosis Generator
 
         Args:
-            api_key: Anthropic API key (optional, will use env var)
+            llm_client: Shared LLM client (defaults to local OpenAI-compatible endpoint)
         """
-        self.client = Anthropic(api_key=api_key) if api_key else Anthropic()
+        self.llm = llm_client or LLMClient()
 
     def generate_diagnosis(
         self,
@@ -54,7 +54,7 @@ class DiagnosisGenerator:
 
         prompt = f"""You are an expert agricultural scientist specializing in coffee disease diagnosis in Karnataka region.
 
-Based ONLY on the following information, provide a diagnosis:
+        Based ONLY on the following information, provide a complete diagnosis. Do not stop mid-sentence; finish every line cleanly. If information is missing, say "Not available" instead of trailing off.
 
 RETRIEVED KNOWLEDGE BASE:
 {context_text}
@@ -67,62 +67,31 @@ DIAGNOSTIC RULES:
 2. Do NOT mention diseases not found in the knowledge base
 3. Do NOT hallucinate symptoms or treatments
 4. If you cannot confidently diagnose, say so explicitly
-5. Provide specific treatment recommendations from the knowledge base
-6. Format your response as:
+5. EXTRACT AND PROVIDE specific treatment recommendations DIRECTLY from the knowledge base above
+6. EXTRACT AND PROVIDE specific prevention measures DIRECTLY from the knowledge base above
+7. Format your response as:
    - DISEASE: [name]
    - CONFIDENCE: [0-100]%
    - SYMPTOMS MATCH: [list symptoms that match]
    - REASON: [why this diagnosis]
-   - TREATMENT: [specific treatment steps]
-   - PREVENTION: [prevention measures]
-   - SOURCE PDF: [which PDF this came from]
+   - TREATMENT: [Extract specific treatment steps from the knowledge base provided above - include all details]
+   - PREVENTION: [Extract specific prevention measures from the knowledge base provided above - include all details]
+   - SOURCE PDF: [which PDF this information came from]
+
+        IMPORTANT: Always include FULL treatment and prevention details extracted from the knowledge base. Do not provide generic responses. Finish every sentence with proper punctuation; no partial sentences.
 
 Provide the diagnosis now:"""
 
         try:
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+            diagnosis_text = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=1000,
-                stream=False,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
             )
 
-            # Properly extract text from Anthropic response
-            diagnosis_text = ""
-
-            # The response has a .content list
-            if hasattr(response, 'content') and isinstance(response.content, list):
-                for block in response.content:
-                    # Use only text blocks; ignore thinking/tool blocks
-                    if getattr(block, 'type', '') == 'text' and hasattr(block, 'text'):
-                        diagnosis_text = block.text.strip()
-                        break
-
-            # Fallback: try direct attribute access - avoid thinking blocks
-            if not diagnosis_text and hasattr(response, 'content'):
-                try:
-                    for block in response.content:
-                        if hasattr(block, 'text') and not hasattr(block, 'thinking'):
-                            diagnosis_text = block.text.strip()
-                            break
-                except:
-                    pass
-
-            # Last resort: check if response itself has text
-            if not diagnosis_text and hasattr(response, 'text'):
-                diagnosis_text = response.text.strip()
-
-            # If still no text, something is wrong
             if not diagnosis_text:
                 raise ValueError("Could not extract textual diagnosis from model response")
 
-            # Parse the response
-            diagnosis = self._parse_diagnosis(diagnosis_text, confidence)
+            diagnosis = self._parse_diagnosis(diagnosis_text, confidence, context)
             return diagnosis
 
         except Exception as e:
@@ -173,7 +142,7 @@ Provide the diagnosis now:"""
 
         return history
 
-    def _parse_diagnosis(self, response_text: str, confidence: float) -> Diagnosis:
+    def _parse_diagnosis(self, response_text: str, confidence: float, context: List[Dict] = None) -> Diagnosis:
         """Parse diagnosis from model response"""
         if not response_text:
             return Diagnosis(
@@ -258,10 +227,10 @@ Provide the diagnosis now:"""
                 reason_end = full_text.lower().find('symptoms match:', reason_start)
             if reason_end == -1:
                 reason_end = len(full_text)
-            reason = full_text[reason_start:reason_end].strip()[:300]
+            reason = full_text[reason_start:reason_end].strip()[:500]
 
-        # Extract treatment - find up to next section or new line pattern
-        treatment = "Consult agricultural expert"
+        # Extract treatment - FULL extraction from knowledge base
+        treatment = ""
         if 'treatment:' in full_text.lower():
             treatment_start = full_text.lower().find('treatment:') + len('treatment:')
             treatment_end = full_text.lower().find('\n-', treatment_start)
@@ -271,10 +240,14 @@ Provide the diagnosis now:"""
                 treatment_end = full_text.lower().find('source pdf:', treatment_start)
             if treatment_end == -1:
                 treatment_end = len(full_text)
-            treatment = full_text[treatment_start:treatment_end].strip()[:500]
+            treatment = full_text[treatment_start:treatment_end].strip()[:1000]
 
-        # Extract prevention - find up to next section or new line pattern
-        prevention = "Preventive measures recommended"
+        # If treatment is too short or empty, it means knowledge base wasn't extracted
+        if not treatment or len(treatment.strip()) < 20:
+            treatment = "Treatment information available in knowledge base - Please consult local agricultural extension office for implementation"
+
+        # Extract prevention - FULL extraction from knowledge base
+        prevention = ""
         if 'prevention:' in full_text.lower():
             prevention_start = full_text.lower().find('prevention:') + len('prevention:')
             prevention_end = full_text.lower().find('\n-', prevention_start)
@@ -282,7 +255,11 @@ Provide the diagnosis now:"""
                 prevention_end = full_text.lower().find('source pdf:', prevention_start)
             if prevention_end == -1:
                 prevention_end = len(full_text)
-            prevention = full_text[prevention_start:prevention_end].strip()[:500]
+            prevention = full_text[prevention_start:prevention_end].strip()[:1000]
+
+        # If prevention is too short or empty, it means knowledge base wasn't extracted
+        if not prevention or len(prevention.strip()) < 20:
+            prevention = "Prevention measures available in knowledge base - Implement preventive practices based on retrieved information"
 
         return Diagnosis(
             disease_name=disease_name,

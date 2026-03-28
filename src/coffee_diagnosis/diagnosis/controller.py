@@ -4,6 +4,7 @@ Orchestrates the complete multi-turn coffee disease diagnosis pipeline
 """
 
 from typing import Optional, Dict, List
+from dotenv import load_dotenv
 from coffee_diagnosis.core.pdf_loader import PDFLoader
 from coffee_diagnosis.core.vector_store import FAISSVectorStore
 from coffee_diagnosis.core.retriever import Retriever
@@ -13,6 +14,11 @@ from coffee_diagnosis.rag.clarification_gen import ClarificationGenerator
 from coffee_diagnosis.rag.state_manager import StateManager
 from .diagnosis_generator import DiagnosisGenerator, Diagnosis
 from .hallucination_checker import HallucinationChecker
+from coffee_diagnosis.core.llm_client import LLMClient
+from config import settings
+
+# Load environment variables
+load_dotenv()
 
 
 class CoffeeDiagnosisController:
@@ -26,13 +32,19 @@ class CoffeeDiagnosisController:
         """
         print("[INIT] Initializing Coffee Disease Diagnosis System...")
 
-        # Initialize components
+        # Initialize LLM client (defaults to local OpenAI-compatible endpoint)
+        llm_client = LLMClient()
+
+        # Initialize components with API key (Claude Haiku by default for lower rate limits)
         self.ambiguity_detector = AmbiguityDetector()
         self.retrieval_evaluator = RetrievalEvaluator(relevance_threshold=0.3)
-        self.clarification_gen = ClarificationGenerator()
+        self.clarification_gen = ClarificationGenerator(llm_client=llm_client)
         self.state_manager = StateManager()
-        self.diagnosis_gen = DiagnosisGenerator()
-        self.hallucination_checker = HallucinationChecker(num_generations=3)
+        self.diagnosis_gen = DiagnosisGenerator(llm_client=llm_client)
+        self.hallucination_checker = HallucinationChecker(
+            llm_client=llm_client,
+            num_generations=settings.NUM_GENERATIONS_FOR_VERIFICATION
+        )
 
         # Initialize vector store
         print("[LOAD] Loading PDFs and creating vector store...")
@@ -266,16 +278,20 @@ class CoffeeDiagnosisController:
         )
         self.state_manager.update_context(filtered_docs)
 
-        # Step 4: Check if we need clarifications
-        print("[STEP4] Generating clarification question...")
+        # Ask first clarification about highest priority missing attribute
         if missing_info and filtered_docs:
+            print("[STEP4] Generating clarification question...")
+            # Get first missing attribute to ask about
+            missing_keys = list(missing_info.keys())
+            primary_missing = missing_keys[0] if missing_keys else None
+
             question = self.clarification_gen.generate_question(
                 initial_query,
                 filtered_docs,
                 [],
                 missing_info
             )
-            self.state_manager.add_system_question(question)
+            self.state_manager.add_system_question(question, attribute=primary_missing)
             return {
                 'status': 'question',
                 'question': question
@@ -308,13 +324,22 @@ class CoffeeDiagnosisController:
             )
 
         # Detect remaining ambiguities with updated information
-        print("[STEP4] Generating next clarification question...")
+        print("[STEP4] Detecting remaining missing information...")
         full_context = (
             self.state_manager.state.initial_query + " " +
             " ".join(self.state_manager.state.user_responses)
         )
         ambiguity_result = self.ambiguity_detector.detect_ambiguity(full_context)
         missing_info = ambiguity_result['missing']
+        self.state_manager.update_detected_ambiguities(ambiguity_result)
+
+        # Filter out attributes we've already asked about
+        new_missing = {}
+        for key, value in missing_info.items():
+            if key not in self.state_manager.state.asked_about_attributes:
+                new_missing[key] = value
+
+        print(f"Missing info: {list(missing_info.keys())}, Already asked: {self.state_manager.state.asked_about_attributes}")
 
         # Retrieve updated context
         retrieved_docs = self.retriever.retrieve(
@@ -328,21 +353,26 @@ class CoffeeDiagnosisController:
         )
         self.state_manager.update_context(filtered_docs)
 
-        # Ask next question if ambiguities remain
-        if missing_info and filtered_docs:
+        # Ask next question only about NEW missing attributes
+        if new_missing and filtered_docs:
+            print("[STEP5] Generating next clarification question...")
+            # Ask about the first new missing attribute
+            primary_missing = list(new_missing.keys())[0]
+
             question = self.clarification_gen.generate_question(
                 self.state_manager.state.initial_query,
                 filtered_docs,
                 self.state_manager.state.user_responses,
-                missing_info
+                new_missing
             )
-            self.state_manager.add_system_question(question)
+            self.state_manager.add_system_question(question, attribute=primary_missing)
             return {
                 'status': 'question',
                 'question': question
             }
         else:
-            # All info gathered or max questions reached
+            # All relevant info gathered
+            print("[OK] All relevant information collected")
             return self._generate_final_diagnosis(
                 self.state_manager.state.initial_query,
                 self.state_manager.state.user_responses

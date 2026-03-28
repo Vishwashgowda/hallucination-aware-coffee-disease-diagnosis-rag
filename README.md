@@ -1,6 +1,6 @@
 # ☕ Coffee Disease Diagnosis System - Hallucination-Aware RAG
 
-A comprehensive AI-powered system for diagnosing coffee diseases in the Karnataka region using advanced RAG architecture with hallucination detection.
+AI-powered coffee disease diagnosis using RAG with hallucination detection. Defaults to a local OpenAI-compatible model via Ollama (no cloud credits). Claude is optional.
 
 ## 🎯 Features
 
@@ -38,28 +38,36 @@ UI DISPLAY (results)
 ## 📦 Installation
 
 ### Prerequisites
-- Python 3.8+
-- Anthropic API key (for Claude models)
+- Python 3.11 recommended
+- Ollama installed (OpenAI-compatible local endpoint): https://ollama.com/download
+- GPU optional (improves speed)
+- Optional: Claude key only if you choose cloud fallback
 
 ### Setup
 
-1. Clone/Navigate to project directory:
-```bash
-cd "e:\SEM 6\GenAi\GenAi project"
-```
-
-2. Install dependencies:
+1) Clone/Navigate to project directory:
+2) Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-
-3. Set up environment variables:
+3) Create `.env` (local model defaults):
 ```bash
-# Create .env file
-ANTHROPIC_API_KEY=your_api_key_here
+LLM_PROVIDER=openai_local
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=phi3
+LLM_API_KEY=ollama
+# Optional Claude fallback:
+# ANTHROPIC_API_KEY=your_claude_key
+# CLAUDE_MODEL=claude-3-haiku-20240307
+LOG_LEVEL=INFO
 ```
 
-4. Ensure PDF files are in project root:
+4) Pull a local model (example: Phi-3):
+```bash
+ollama pull phi3
+```
+
+5) Ensure PDFs exist in `data/pdfs`:
    - `Coffee (1).pdf`
    - `coffee_cultivation_guide.pdf`
    - `i4985e.pdf`
@@ -70,22 +78,13 @@ ANTHROPIC_API_KEY=your_api_key_here
 
 Run the Streamlit application:
 ```bash
-streamlit run app.py
+python -m streamlit run ui/streamlit_app.py
 ```
 
 Then open your browser to `http://localhost:8501`
 
-### Command Line Testing
-
-Test with a sample query:
-```bash
-python test_diagnosis.py "Leaves are turning yellow with brown spots"
-```
-
-Or run interactive test mode:
-```bash
-python test_diagnosis.py
-```
+### Command Line Testing (optional)
+- `python test_diagnosis.py "Leaves are turning yellow with brown spots"`
 
 ## 📂 Project Structure
 
@@ -108,7 +107,7 @@ coffee_project/
 │   ├── controller.py              # Multi-turn orchestration
 │   ├── diagnosis_generator.py     # Final diagnosis
 │   └── hallucination_checker.py   # SelfCheckGPT verification
-├── app.py                         # Streamlit UI
+-├── app.py                         # (legacy UI, use ui/streamlit_app.py)
 ├── test_diagnosis.py              # CLI test script
 ├── requirements.txt               # Dependencies
 └── README.md                      # This file
@@ -142,7 +141,7 @@ coffee_project/
 - Identifies disease-specific keywords
 
 ### 6. Clarification Generator - RAC (`clarification_gen.py`)
-- Generates questions using Claude API
+- Generates questions using shared LLM client (default: local via Ollama)
 - Ensures questions are grounded in context
 - Validates question relevance
 
@@ -158,12 +157,12 @@ coffee_project/
 - Coordinates all modules
 
 ### 9. Diagnosis Generator (`diagnosis_generator.py`)
-- Generates final diagnosis using Claude
+- Generates final diagnosis using shared LLM client (default: local via Ollama)
 - Provides treatment recommendations
 - Formats output clearly
 
 ### 10. Hallucination Checker (`hallucination_checker.py`)
-- Generates diagnosis 3 times independently
+- Generates diagnosis multiple times (default 3; configurable via `NUM_GENERATIONS_FOR_VERIFICATION`)
 - Compares for consistency
 - Detects hallucinations
 - Provides verification report
@@ -190,9 +189,9 @@ The diagnosis stops when:
 
 ## 🔐 Hallucination Detection
 
-The system uses SelfCheckGPT approach:
-- Generates diagnosis 3 times independently
-- Compares disease names for consistency
+The system uses a SelfCheckGPT-inspired approach:
+- Generates diagnosis (default 1 generation to reduce calls; can be increased)
+- Compares disease names for consistency when multiple generations are used
 - Checks treatment recommendation similarity
 - Flags inconsistencies with warnings
 - Provides consistency score
@@ -256,8 +255,8 @@ Agreement Level: 100%
 1. **Context Only**: The system only provides diagnoses based on retrieved PDF context
 2. **Not a Substitute**: Should not replace consultation with local agricultural experts
 3. **Hallucination Warnings**: System flags potential hallucinations
-4. **Network Required**: Needs internet for Claude API calls
-5. **API Costs**: Uses Anthropic Claude API (review pricing)
+4. **Local by Default**: Uses local OpenAI-compatible endpoint via Ollama (no cloud costs once the model is pulled)
+5. **Optional Cloud**: Set `LLM_PROVIDER=anthropic` and add `ANTHROPIC_API_KEY` to use Claude instead
 
 ## 🔧 Troubleshooting
 
@@ -270,14 +269,13 @@ Agreement Level: 100%
 - Subsequent runs use cached index
 - Clear `vector_db/` to rebuild index
 
-### API Errors
-- Check ANTHROPIC_API_KEY is set
-- Verify API key is valid
-- Check internet connection
+### LLM Errors
+- Local: ensure Ollama is running and model pulled (`ollama list`)
+- Claude (optional): set `LLM_PROVIDER=anthropic` and add a valid `ANTHROPIC_API_KEY`
 
 ### Poor Diagnoses
-- Ensure PDF knowledge base is comprehensive
-- Provide detailed symptom descriptions
+- Ensure PDFs are in `data/pdfs`
+- Provide detailed symptoms (color, pattern, location, timing)
 - Answer clarification questions fully
 
 ## 📚 Knowledge Base
@@ -289,11 +287,12 @@ The system uses 3 comprehensive PDFs:
 
 ## 🎓 Technical Stack
 
-- **Python 3.8+**: Core language
+- **Python 3.11**: Core language
 - **LangChain**: Framework for LLM orchestration
 - **FAISS**: Vector similarity search
 - **Sentence-Transformers**: Embeddings (all-MiniLM-L6-v2)
-- **Anthropic Claude**: LLM backend
+- **Local LLM (Ollama)**: Default LLM backend (OpenAI-compatible)
+- **Anthropic Claude**: Optional fallback
 - **Streamlit**: Web UI framework
 - **PyPDF**: PDF processing
 

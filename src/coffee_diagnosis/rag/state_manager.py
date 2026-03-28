@@ -20,6 +20,7 @@ class ConversationState:
     detected_ambiguities: Dict = field(default_factory=dict)
     possible_diseases: List[str] = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    asked_about_attributes: List[str] = field(default_factory=list)
 
 
 class StateManager:
@@ -42,10 +43,12 @@ class StateManager:
         self.state.user_responses.append(response)
         self.increase_confidence(0.15)  # Each answer increases confidence
 
-    def add_system_question(self, question: str) -> None:
-        """Add system question to state"""
+    def add_system_question(self, question: str, attribute: str = None) -> None:
+        """Add system question to state and track which attribute it's about"""
         self.state.system_questions.append(question)
         self.state.questions_asked += 1
+        if attribute and attribute not in self.state.asked_about_attributes:
+            self.state.asked_about_attributes.append(attribute)
 
     def increase_confidence(self, amount: float) -> None:
         """Increase confidence score"""
@@ -74,7 +77,7 @@ class StateManager:
         Conditions:
         - confidence > 0.8 OR
         - only 1 disease remains OR
-        - questions_asked >= 3
+        - no more missing ambiguities (all info collected)
         """
         if self.state.confidence > 0.8:
             return True
@@ -82,7 +85,9 @@ class StateManager:
         if len(self.state.possible_diseases) == 1:
             return True
 
-        if self.state.questions_asked >= 3:
+        # Check if there are any missing ambiguities left
+        missing_attrs = self.state.detected_ambiguities.get('missing', {})
+        if not missing_attrs:  # No more missing info
             return True
 
         return False

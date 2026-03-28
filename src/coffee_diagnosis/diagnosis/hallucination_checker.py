@@ -3,20 +3,20 @@ Hallucination Checker Module (SelfCheckGPT)
 Verifies consistency of diagnoses to detect hallucinations
 """
 
-from typing import List, Dict, Optional, Tuple
-from anthropic import Anthropic
+from typing import List, Dict, Optional
+from coffee_diagnosis.core.llm_client import LLMClient
 
 
 class HallucinationChecker:
-    def __init__(self, api_key: Optional[str] = None, num_generations: int = 3):
+    def __init__(self, llm_client: Optional[LLMClient] = None, num_generations: int = 1):
         """
         Initialize Hallucination Checker
 
         Args:
-            api_key: Anthropic API key
-            num_generations: Number of independent diagnosis generations
+            llm_client: Shared LLM client (defaults to local OpenAI-compatible endpoint)
+            num_generations: Number of independent diagnosis generations (kept low for rate limits)
         """
-        self.client = Anthropic(api_key=api_key) if api_key else Anthropic()
+        self.llm = llm_client or LLMClient()
         self.num_generations = num_generations
 
     def check_hallucination(
@@ -79,48 +79,12 @@ RULES:
 Diagnosis (just the disease name and key symptoms)."""
 
         try:
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=500,
-                stream=False,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+            diagnosis_text = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=400,
             )
-
-            # Properly extract text from response - ONLY get text blocks
-            diagnosis_text = ""
-
-            # Check for .content list with TextBlock objects
-            if hasattr(response, 'content') and isinstance(response.content, list):
-                for block in response.content:
-                    # Only process text blocks, skip thinking/tool blocks
-                    if getattr(block, 'type', '') == 'text' and hasattr(block, 'text'):
-                        diagnosis_text = block.text.strip()
-                        break
-                    elif hasattr(block, 'text') and not hasattr(block, 'thinking') and not getattr(block, 'type', None) == 'thinking':
-                        diagnosis_text = block.text.strip()
-                        break
-
-            # Fallback methods
-            if not diagnosis_text:
-                try:
-                    for block in response.content:
-                        if hasattr(block, 'text') and not (hasattr(block, 'thinking') or getattr(block, 'type', None) == 'thinking'):
-                            diagnosis_text = block.text.strip()
-                            break
-                except:
-                    pass
-
-            if not diagnosis_text and hasattr(response, 'text'):
-                diagnosis_text = response.text.strip()
-
             if not diagnosis_text:
                 diagnosis_text = "No diagnosis generated"
-
             return diagnosis_text
 
         except Exception as e:

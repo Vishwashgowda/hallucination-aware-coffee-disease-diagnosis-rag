@@ -99,7 +99,7 @@ def main():
         unsafe_allow_html=True
     )
     st.markdown(
-        """<div class='subtitle-style'>Multi-turn AI Assistant with Hallucination Detection (Karnataka)</div>""",
+        """<div class='subtitle-style'>Multi-turn Assistant with Hallucination-Aware Coffee Disease Diagnosis using RAG</div>""",
         unsafe_allow_html=True
     )
 
@@ -182,7 +182,7 @@ def main():
             with col_conf:
                 st.markdown(f"### Confidence")
                 confidence_pct = diagnosis.confidence * 100
-                st.metric("", f"{confidence_pct:.1f}%")
+                st.metric("Score", f"{confidence_pct:.1f}%")
 
             # Details
             st.markdown("#### Reason")
@@ -196,6 +196,19 @@ def main():
 
             st.markdown("#### Source")
             st.write(diagnosis.source)
+
+            # RAG evidence for the final decision
+            ctx_state = getattr(st.session_state.controller, "state_manager", None)
+            ctx = ctx_state.state.retrieved_context if ctx_state and getattr(ctx_state, "state", None) else []
+            if ctx:
+                st.markdown("#### Evidence (RAG sources)")
+                for i, chunk in enumerate(ctx[:5], 1):
+                    source = chunk.get("source", "Unknown")
+                    page = chunk.get("metadata", {}).get("page")
+                    snippet = chunk.get("content", "")[:400]
+                    page_info = f" (page {page + 1})" if isinstance(page, int) else ""
+                    st.markdown(f"**{i}. {source}{page_info}**")
+                    st.caption(snippet + ("..." if len(snippet) == 400 else ""))
 
             # Verification
             st.markdown("---")
@@ -280,12 +293,20 @@ def main():
                 st.markdown("### Answer the Question")
                 st.info(f"**Question**: {st.session_state.current_question}")
 
+                # Manage answer input state and clearing between runs
+                if "answer_input" not in st.session_state:
+                    st.session_state.answer_input = ""
+                if st.session_state.get("clear_answer_input"):
+                    st.session_state.answer_input = ""
+                    st.session_state.clear_answer_input = False
+
                 user_answer = st.text_area(
                     "Your answer:",
                     placeholder="Provide details based on the question",
                     height=100,
                     label_visibility="collapsed",
-                    key="answer_input"
+                    key="answer_input",
+                    value=st.session_state.answer_input
                 )
 
                 col_submit, col_skip = st.columns(2)
@@ -300,6 +321,8 @@ def main():
                                         'role': 'user',
                                         'content': user_answer
                                     })
+                                    # Flag to clear input on next render
+                                    st.session_state.clear_answer_input = True
 
                                     if result['status'] == 'question':
                                         # Another clarification question
@@ -355,7 +378,6 @@ def main():
         st.markdown("---")
 
         if st.session_state.awaiting_answer:
-            st.info(f"Questions asked: {st.session_state.controller.state_manager.questions_asked} / 3")
             st.info(f"Confidence: {st.session_state.controller.state_manager.confidence * 100:.1f}%")
 
         st.subheader("Tips")

@@ -33,10 +33,16 @@ MAX_QUESTIONS = 3
 RELEVANCE_THRESHOLD = 0.3
 
 # Hallucination checker settings
-NUM_GENERATIONS_FOR_VERIFICATION = 3
+NUM_GENERATIONS_FOR_VERIFICATION = int(os.getenv("NUM_GENERATIONS_FOR_VERIFICATION", "1"))
 
-# API settings
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
+# LLM provider settings (default to local OpenAI-compatible endpoint, e.g., Ollama)
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai_local")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "phi3")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "ollama")
+
+# Anthropic (optional fallback)
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-haiku-20240307")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 # Logging
