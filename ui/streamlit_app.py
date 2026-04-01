@@ -262,25 +262,34 @@ def main():
                         with st.spinner("Analyzing symptoms and checking for missing information..."):
                             try:
                                 result = st.session_state.controller.start_diagnosis(user_input)
+                                status = result.get('status')
                                 st.session_state.conversation.append({
                                     'role': 'user',
                                     'content': user_input
                                 })
-                                st.session_state.diagnosis_started = True
 
-                                if result['status'] == 'question':
-                                    # System is asking a clarification question
-                                    st.session_state.current_question = result['question']
-                                    st.session_state.awaiting_answer = True
+                                if status == 'off_topic':
+                                    st.warning(result['message'])
                                     st.session_state.conversation.append({
                                         'role': 'assistant',
-                                        'content': result['question']
+                                        'content': result['message']
                                     })
-                                elif result['status'] == 'diagnosis':
-                                    # Got diagnosis directly (no clarifications needed)
-                                    st.session_state.diagnosis_result = result
+                                else:
+                                    st.session_state.diagnosis_started = True
 
-                                st.rerun()
+                                    if status == 'question':
+                                        # System is asking a clarification question
+                                        st.session_state.current_question = result['question']
+                                        st.session_state.awaiting_answer = True
+                                        st.session_state.conversation.append({
+                                            'role': 'assistant',
+                                            'content': result['question']
+                                        })
+                                    elif status == 'diagnosis':
+                                        # Got diagnosis directly (no clarifications needed)
+                                        st.session_state.diagnosis_result = result
+
+                                    st.rerun()
                             except Exception as e:
                                 st.error(f"Error during diagnosis: {str(e)}")
                                 import traceback
@@ -321,22 +330,31 @@ def main():
                                         'role': 'user',
                                         'content': user_answer
                                     })
-                                    # Flag to clear input on next render
-                                    st.session_state.clear_answer_input = True
+                                    status = result.get('status')
 
-                                    if result['status'] == 'question':
-                                        # Another clarification question
-                                        st.session_state.current_question = result['question']
+                                    if status == 'off_topic':
+                                        st.warning(result['message'])
                                         st.session_state.conversation.append({
                                             'role': 'assistant',
-                                            'content': result['question']
+                                            'content': result['message']
                                         })
-                                    elif result['status'] == 'diagnosis':
-                                        # Got diagnosis
-                                        st.session_state.diagnosis_result = result
-                                        st.session_state.awaiting_answer = False
+                                    else:
+                                        # Flag to clear input on next render
+                                        st.session_state.clear_answer_input = True
 
-                                    st.rerun()
+                                        if status == 'question':
+                                            # Another clarification question
+                                            st.session_state.current_question = result['question']
+                                            st.session_state.conversation.append({
+                                                'role': 'assistant',
+                                                'content': result['question']
+                                            })
+                                        elif status == 'diagnosis':
+                                            # Got diagnosis
+                                            st.session_state.diagnosis_result = result
+                                            st.session_state.awaiting_answer = False
+
+                                        st.rerun()
                                 except Exception as e:
                                     st.error(f"Error processing answer: {str(e)}")
                                     import traceback

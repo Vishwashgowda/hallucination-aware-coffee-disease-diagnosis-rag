@@ -45,6 +45,15 @@ class ClarificationGenerator:
         # Create a concise list of what's missing
         missing_keys = list(missing_info.keys()) if missing_info else []
 
+        # Off-topic guard: if the user hasn't mentioned coffee plants or plant symptoms, redirect
+        combined_text = f"{query} {' '.join(previous_answers)}".lower()
+        plant_terms = ["coffee", "leaf", "leaves", "plant", "tree", "berry", "berries", "stem"]
+        if not any(term in combined_text for term in plant_terms):
+            return (
+                "I can help with coffee plant health. Please describe the coffee plant symptoms "
+                "(e.g., leaf color/pattern, spots, wilting, affected parts like leaves, stems, or berries)."
+            )
+
         if not missing_keys:
             return "Do you see any other symptoms or changes on the plant?"
 
@@ -64,10 +73,11 @@ Retrieved information from knowledge base:
 2. The question must be grounded in coffee disease symptoms
 3. Reference what the user ALREADY told you to show continuity
 4. Do NOT assume facts the user hasn't stated; avoid presupposing specifics like "older leaves" unless the user mentioned it. If you need to know, ask neutrally (e.g., "Are the yellow leaves on older or newer growth?")
-5. Ask naturally, not like a form
-6. Keep it concise (1 sentence)
-7. Do NOT ask yes/no questions - ask for details
-8. Make the question flow naturally from what they said
+5. If you want to check for a symptom mentioned only in the knowledge base, frame it as a possibility ("Some diseases cause brown margins—do you see that?") rather than stating it already happened.
+6. Ask naturally, not like a form
+7. Keep it concise (1 sentence)
+8. Do NOT ask yes/no questions - ask for details
+9. Make the question flow naturally from what they said
 
 Example good questions:
 - "You mentioned yellow spots - do you see them mostly on older leaves or newer growth?"

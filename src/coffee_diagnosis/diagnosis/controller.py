@@ -257,6 +257,15 @@ class CoffeeDiagnosisController:
         """
         print(f"\n[QUERY] Initial Query: {initial_query}\n")
 
+        if not self._matches_context_or_coffee(initial_query):
+            return {
+                'status': 'off_topic',
+                'message': (
+                    "This assistant only diagnoses coffee plant health issues. "
+                    "Please describe the symptoms you see on coffee plants (leaf color, spots, wilting, berries, stems, etc.)."
+                )
+            }
+
         # Initialize state
         self.state_manager.initialize(initial_query)
 
@@ -311,6 +320,15 @@ class CoffeeDiagnosisController:
             Dictionary with 'status' ('question' or 'diagnosis') and next question/diagnosis
         """
         print(f"\n[USER_ANSWER] {answer}\n")
+
+        if not self._matches_context_or_coffee(answer):
+            return {
+                'status': 'off_topic',
+                'message': (
+                    "That response doesn't mention coffee plant symptoms. "
+                    "Please describe what you observe on the coffee plant (leaves, berries, stems) so I can continue."
+                )
+            }
 
         # Add user response to state
         self.state_manager.add_user_response(answer)
@@ -422,3 +440,91 @@ class CoffeeDiagnosisController:
             Formatted conversation history string
         """
         return self.state_manager.get_conversation_history()
+
+    def _matches_context_or_coffee(self, text: str) -> bool:
+        """
+        Determine whether user text is relevant to coffee diagnosis.
+
+        Accepts text that either:
+        1. Mentions coffee plant parts or known symptom keywords
+        2. Overlaps with retrieved context content (allowing short answers like "white ring")
+        """
+        if not text:
+            return False
+
+        text_lower = text.lower()
+
+        plant_keywords = {
+            "coffee",
+            "arabica",
+            "robusta",
+            "plant",
+            "tree",
+            "stem",
+            "branch",
+            "berry",
+            "berries",
+            "bean",
+            "beans",
+            "crop",
+            "cherry",
+            "canopy",
+        }
+
+        symptom_keywords = {
+            "leaf",
+            "leaves",
+            "spot",
+            "spots",
+            "patch",
+            "patches",
+            "color",
+            "yellow",
+            "brown",
+            "red",
+            "orange",
+            "powder",
+            "wilt",
+            "wilting",
+            "curl",
+            "curling",
+            "hole",
+            "holes",
+            "tunnel",
+            "dieback",
+            "ring",
+            "rings",
+            "edge",
+            "edges",
+            "margin",
+            "margins",
+            "vein",
+            "veins",
+            "chlorosis",
+            "lesion",
+            "lesions",
+            "scorch",
+            "rust",
+        }
+
+        if any(keyword in text_lower for keyword in plant_keywords.union(symptom_keywords)):
+            return True
+
+        state = getattr(self.state_manager, "state", None)
+        if not state or not getattr(state, "retrieved_context", None):
+            return False
+
+        words = [w for w in text_lower.split() if len(w) >= 3]
+        if not words:
+            return False
+
+        for chunk in state.retrieved_context:
+            if isinstance(chunk, dict):
+                content = chunk.get("content") or ""
+            else:
+                content = getattr(chunk, "page_content", "") or ""
+            content_lower = content.lower()
+            if any(word in content_lower for word in words):
+                return True
+
+        return False
