@@ -159,6 +159,9 @@ Diagnosis (just the disease name and key symptoms)."""
             hallucination_detected = True
             warnings.append("[WARNING] Symptoms vary significantly across generations")
 
+        # Safety signal for active gating: check if safe to finalize
+        safe_to_finalize = consistency_score >= 0.8 and not hallucination_detected
+
         return {
             'consistent': not hallucination_detected,
             'consistency_score': consistency_score,
@@ -167,7 +170,8 @@ Diagnosis (just the disease name and key symptoms)."""
             'hallucination_detected': hallucination_detected,
             'warnings': warnings,
             'num_generations': self.num_generations,
-            'agreement': f"{int((1 - len(consistent_diseases) / self.num_generations) * 100)}%"
+            'agreement': f"{int((1 - len(consistent_diseases) / self.num_generations) * 100)}%",
+            'safe_to_finalize': safe_to_finalize
         }
 
     def _extract_disease_name(self, diagnosis_text: str) -> str:

@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from coffee_diagnosis.core.pdf_loader import PDFLoader
 from coffee_diagnosis.core.vector_store import FAISSVectorStore
 from coffee_diagnosis.core.retriever import Retriever
+from coffee_diagnosis.core.json_retriever import JSONRetriever
 from coffee_diagnosis.rag.ambiguity_detector import AmbiguityDetector
 from coffee_diagnosis.rag.retrieval_evaluator import RetrievalEvaluator
 from coffee_diagnosis.rag.clarification_gen import ClarificationGenerator
@@ -16,6 +17,7 @@ from .diagnosis_generator import DiagnosisGenerator, Diagnosis
 from .hallucination_checker import HallucinationChecker
 from coffee_diagnosis.core.llm_client import LLMClient
 from config import settings
+import os
 
 # Load environment variables
 load_dotenv()
@@ -46,7 +48,7 @@ class CoffeeDiagnosisController:
             num_generations=settings.NUM_GENERATIONS_FOR_VERIFICATION
         )
 
-        # Initialize vector store
+        # Initialize vector store for PDFs
         print("[LOAD] Loading PDFs and creating vector store...")
         pdf_loader = PDFLoader(data_dir=data_dir)
         documents = pdf_loader.load_pdfs()
@@ -54,7 +56,25 @@ class CoffeeDiagnosisController:
         self.vector_store = FAISSVectorStore(vector_db_path=vector_db_path)
         self.vector_store.create_index(documents)
 
-        self.retriever = Retriever(self.vector_store, top_k=5)
+        # Initialize JSON retriever for structured disease knowledge
+        json_path = os.path.join(data_dir, 'disease_knowledge.json')
+        json_retriever = None
+        if os.path.exists(json_path):
+            print("[LOAD] Loading structured JSON disease knowledge...")
+            json_retriever = JSONRetriever(
+                json_path=json_path,
+                embeddings=self.vector_store.embeddings
+            )
+            print(f"[OK] Loaded {len(json_retriever.diseases)} diseases from JSON")
+        else:
+            print(f"[WARN] JSON knowledge base not found at {json_path}, using PDF only")
+
+        # Initialize hybrid retriever (JSON + PDF)
+        self.retriever = Retriever(
+            vector_store=self.vector_store,
+            json_retriever=json_retriever,
+            top_k=5
+        )
 
         print("[OK] System initialized successfully!\n")
 
@@ -288,7 +308,7 @@ class CoffeeDiagnosisController:
         self.state_manager.update_context(filtered_docs)
 
         # Ask first clarification about highest priority missing attribute
-        if missing_info and filtered_docs:
+        if missing_info:  # Removed filtered_docs requirement - always ask if ambiguity exists
             print("[STEP4] Generating clarification question...")
             # Get first missing attribute to ask about
             missing_keys = list(missing_info.keys())
@@ -296,7 +316,7 @@ class CoffeeDiagnosisController:
 
             question = self.clarification_gen.generate_question(
                 initial_query,
-                filtered_docs,
+                filtered_docs or [],  # Pass empty list if no docs
                 [],
                 missing_info
             )
@@ -322,16 +342,24 @@ class CoffeeDiagnosisController:
         print(f"\n[USER_ANSWER] {answer}\n")
 
         if not self._matches_context_or_coffee(answer):
-            return {
-                'status': 'off_topic',
-                'message': (
-                    "That response doesn't mention coffee plant symptoms. "
-                    "Please describe what you observe on the coffee plant (leaves, berries, stems) so I can continue."
-                )
-            }
-
-        # Add user response to state
-        self.state_manager.add_user_response(answer)
+            # Allow "not sure" / "don't know" type responses as valid (neutral info)
+            uncertain_phrases = ['not sure', "don't know", "dont know", "not certain", 
+                                "can't tell", "cant tell", "unsure", "no idea"]
+            if any(phrase in answer.lower() for phrase in uncertain_phrases):
+                # Mark this as uncertain but continue with next question
+                self.state_manager.add_user_response(f"User uncertain: {answer}")
+                print(f"[NOTE] User expressed uncertainty, continuing...\n")
+            else:
+                return {
+                    'status': 'off_topic',
+                    'message': (
+                        "That response doesn't mention coffee plant symptoms. "
+                        "Please describe what you observe on the coffee plant (leaves, berries, stems) so I can continue."
+                    )
+                }
+        else:
+            # Add user response to state
+            self.state_manager.add_user_response(answer)
 
         # Check stop condition
         if self.state_manager.should_stop():
@@ -372,14 +400,14 @@ class CoffeeDiagnosisController:
         self.state_manager.update_context(filtered_docs)
 
         # Ask next question only about NEW missing attributes
-        if new_missing and filtered_docs:
+        if new_missing:  # Removed filtered_docs requirement - always ask if new ambiguity exists
             print("[STEP5] Generating next clarification question...")
             # Ask about the first new missing attribute
             primary_missing = list(new_missing.keys())[0]
 
             question = self.clarification_gen.generate_question(
                 self.state_manager.state.initial_query,
-                filtered_docs,
+                filtered_docs or [],  # Pass empty list if no docs
                 self.state_manager.state.user_responses,
                 new_missing
             )
@@ -423,6 +451,35 @@ class CoffeeDiagnosisController:
             self.state_manager.state.retrieved_context,
             final_diagnosis.disease_name
         )
+
+        # Active gate: ask one more targeted clarification when verification is weak
+        if (
+            (not verification_report.get('safe_to_finalize', verification_report.get('consistent', True)))
+            and self.state_manager.questions_asked < settings.MAX_QUESTIONS
+        ):
+            full_context = initial_query + " " + " ".join(user_responses)
+            ambiguity_result = self.ambiguity_detector.detect_ambiguity(full_context)
+            missing_info = ambiguity_result.get('missing', {})
+            self.state_manager.update_detected_ambiguities(ambiguity_result)
+
+            new_missing = {
+                key: value for key, value in missing_info.items()
+                if key not in self.state_manager.state.asked_about_attributes
+            }
+
+            if new_missing:
+                question = self.clarification_gen.generate_question(
+                    initial_query,
+                    self.state_manager.state.retrieved_context,
+                    user_responses,
+                    new_missing
+                )
+                primary_missing = list(new_missing.keys())[0]
+                self.state_manager.add_system_question(question, attribute=primary_missing)
+                return {
+                    'status': 'question',
+                    'question': question
+                }
 
         return {
             'status': 'diagnosis',

@@ -54,7 +54,7 @@ class DiagnosisGenerator:
 
         prompt = f"""You are an expert agricultural scientist specializing in coffee disease diagnosis in Karnataka region.
 
-        Based ONLY on the following information, provide a complete diagnosis. Do not stop mid-sentence; finish every line cleanly. If information is missing, say "Not available" instead of trailing off.
+Based ONLY on the following information, provide a complete diagnosis with structured candidate comparison.
 
 RETRIEVED KNOWLEDGE BASE:
 {context_text}
@@ -63,24 +63,33 @@ USER INFORMATION:
 {history_text}
 
 DIAGNOSTIC RULES:
-1. Provide diagnosis ONLY based on the retrieved knowledge base above
-2. Do NOT mention diseases not found in the knowledge base
-3. Do NOT hallucinate symptoms or treatments
-4. If you cannot confidently diagnose, say so explicitly
-5. EXTRACT AND PROVIDE specific treatment recommendations DIRECTLY from the knowledge base above
-6. EXTRACT AND PROVIDE specific prevention measures DIRECTLY from the knowledge base above
-7. Format your response as:
-   - DISEASE: [name]
-   - CONFIDENCE: [0-100]%
-   - SYMPTOMS MATCH: [list symptoms that match]
-   - REASON: [why this diagnosis]
-   - TREATMENT: [Extract specific treatment steps from the knowledge base provided above - include all details]
-   - PREVENTION: [Extract specific prevention measures from the knowledge base provided above - include all details]
-   - SOURCE PDF: [which PDF this information came from]
+1. FIRST: List 2-3 candidate diseases with scores based on symptom match
+2. THEN: Pick the best match and provide full diagnosis
+3. Provide diagnosis ONLY based on the retrieved knowledge base above
+4. Do NOT mention diseases not found in the knowledge base
+5. Do NOT hallucinate symptoms or treatments
+6. EXTRACT specific treatment and prevention DIRECTLY from knowledge base
+7. No markdown headers (# ##) in treatment/prevention sections
 
-        IMPORTANT: Always include FULL treatment and prevention details extracted from the knowledge base. Do not provide generic responses. Finish every sentence with proper punctuation; no partial sentences.
+FORMAT YOUR RESPONSE EXACTLY AS:
 
-Provide the diagnosis now:"""
+CANDIDATE COMPARISON:
+1. [Disease 1]: [Score 0-100]% - [Evidence from symptoms]
+2. [Disease 2]: [Score 0-100]% - [Evidence from symptoms]
+3. [Disease 3]: [Score 0-100]% - [Evidence from symptoms]
+
+FINAL DIAGNOSIS:
+DISEASE: [name of highest scoring candidate]
+CONFIDENCE: [0-100]%
+SYMPTOMS MATCH: [list symptoms that match]
+REASON: [why this diagnosis based on candidate comparison]
+TREATMENT: [Extract specific treatment steps from knowledge base - NO markdown headers]
+PREVENTION: [Extract specific prevention measures from knowledge base - NO markdown headers]
+SOURCE PDF: [which PDF this information came from]
+
+IMPORTANT: Finish every sentence properly. Extract FULL treatment/prevention from knowledge base.
+
+Provide the structured diagnosis now:"""
 
         try:
             diagnosis_text = self.llm.chat(
@@ -160,6 +169,12 @@ Provide the diagnosis now:"""
         treatment = ""
         prevention = ""
         source = "Knowledge base"
+
+        # Prefer explicitly reported DISEASE field
+        for line in lines:
+            if line.strip().lower().startswith("disease:"):
+                disease_name = line.split(":", 1)[1].strip() or disease_name
+                break
 
         # Coffee diseases database
         known_diseases = {
@@ -241,6 +256,8 @@ Provide the diagnosis now:"""
             if treatment_end == -1:
                 treatment_end = len(full_text)
             treatment = full_text[treatment_start:treatment_end].strip()[:1000]
+            # Remove markdown headers that cause formatting issues
+            treatment = self._clean_markdown_headers(treatment)
 
         # If treatment is too short or empty, it means knowledge base wasn't extracted
         if not treatment or len(treatment.strip()) < 20:
@@ -256,6 +273,8 @@ Provide the diagnosis now:"""
             if prevention_end == -1:
                 prevention_end = len(full_text)
             prevention = full_text[prevention_start:prevention_end].strip()[:1000]
+            # Remove markdown headers that cause formatting issues
+            prevention = self._clean_markdown_headers(prevention)
 
         # If prevention is too short or empty, it means knowledge base wasn't extracted
         if not prevention or len(prevention.strip()) < 20:
@@ -269,6 +288,14 @@ Provide the diagnosis now:"""
             prevention=prevention if prevention else "Preventive measures recommended",
             source=source
         )
+
+    def _clean_markdown_headers(self, text: str) -> str:
+        """Remove markdown headers (# ## ###) that cause large font rendering in UI"""
+        import re
+        # Remove markdown headers at the start of lines
+        # Matches: # Header, ## Header, ### Header, etc.
+        cleaned = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+        return cleaned.strip()
 
     def format_diagnosis_output(self, diagnosis: Diagnosis) -> str:
         """Format diagnosis for display"""

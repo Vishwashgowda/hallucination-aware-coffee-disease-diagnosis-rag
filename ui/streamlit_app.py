@@ -167,81 +167,94 @@ def main():
 
         # Diagnosis result display
         if st.session_state.diagnosis_result:
-            st.markdown("---")
-            st.subheader("Diagnosis Result")
-
-            diagnosis = st.session_state.diagnosis_result['diagnosis']
-            verification = st.session_state.diagnosis_result['verification']
-
-            # Disease diagnosis
-            col_disease, col_conf = st.columns(2)
-            with col_disease:
-                st.markdown(f"### Disease")
-                st.write(f"**{diagnosis.disease_name}**")
-
-            with col_conf:
-                st.markdown(f"### Confidence")
-                confidence_pct = diagnosis.confidence * 100
-                st.metric("Score", f"{confidence_pct:.1f}%")
-
-            # Details
-            st.markdown("#### Reason")
-            st.write(diagnosis.reason)
-
-            st.markdown("#### Treatment")
-            st.write(diagnosis.treatment)
-
-            st.markdown("#### Prevention")
-            st.write(diagnosis.prevention)
-
-            st.markdown("#### Source")
-            st.write(diagnosis.source)
-
-            # RAG evidence for the final decision
-            ctx_state = getattr(st.session_state.controller, "state_manager", None)
-            ctx = ctx_state.state.retrieved_context if ctx_state and getattr(ctx_state, "state", None) else []
-            if ctx:
-                st.markdown("#### Evidence (RAG sources)")
-                for i, chunk in enumerate(ctx[:5], 1):
-                    source = chunk.get("source", "Unknown")
-                    page = chunk.get("metadata", {}).get("page")
-                    snippet = chunk.get("content", "")[:400]
-                    page_info = f" (page {page + 1})" if isinstance(page, int) else ""
-                    st.markdown(f"**{i}. {source}{page_info}**")
-                    st.caption(snippet + ("..." if len(snippet) == 400 else ""))
-
-            # Verification
-            st.markdown("---")
-            st.subheader("Hallucination Verification")
-
-            if verification['consistent']:
-                status = "[OK] Verified"
-                status_color = "green"
-            else:
-                status = "[WARNING] Issues Detected"
-                status_color = "orange"
-
-            st.markdown(f"<div style='color: {status_color}; font-size: 1.2rem;'><b>{status}</b></div>",
-                       unsafe_allow_html=True)
-
-            st.write(f"**Consistency Score**: {verification['consistency_score'] * 100:.1f}%")
-            st.write(f"**Agreement Level**: {verification['agreement']}")
-            st.write(f"**Generations Checked**: {verification['num_generations']}")
-
-            if verification['warnings']:
-                st.markdown("##### Warnings:")
-                for warning in verification['warnings']:
-                    st.warning(warning)
-
-            # New diagnosis button
-            if st.button("Start New Diagnosis", key="new_diagnosis_btn"):
-                st.session_state.controller.reset()
-                st.session_state.conversation = []
-                st.session_state.current_question = None
+            # Check if we got a diagnosis or another question (active gating)
+            if st.session_state.diagnosis_result.get('status') == 'question':
+                # Active gating triggered - we got another question instead of diagnosis
+                st.session_state.current_question = st.session_state.diagnosis_result['question']
+                st.session_state.awaiting_answer = True
                 st.session_state.diagnosis_result = None
-                st.session_state.diagnosis_started = False
-                st.session_state.awaiting_answer = False
+                st.session_state.gating_triggered = True  # Set flag to show message on next render
                 st.rerun()
+            elif 'diagnosis' in st.session_state.diagnosis_result:
+                st.markdown("---")
+                st.subheader("Diagnosis Result")
+
+                diagnosis = st.session_state.diagnosis_result['diagnosis']
+                verification = st.session_state.diagnosis_result['verification']
+
+                # Disease diagnosis
+                col_disease, col_conf = st.columns(2)
+                with col_disease:
+                    st.markdown(f"### Disease")
+                    st.write(f"**{diagnosis.disease_name}**")
+
+                with col_conf:
+                    st.markdown(f"### Confidence")
+                    confidence_pct = diagnosis.confidence * 100
+                    st.metric("Score", f"{confidence_pct:.1f}%")
+
+                # Details
+                st.markdown("#### Reason")
+                st.write(diagnosis.reason)
+
+                st.markdown("#### Treatment")
+                st.write(diagnosis.treatment)
+
+                st.markdown("#### Prevention")
+                st.write(diagnosis.prevention)
+
+                st.markdown("#### Source")
+                st.write(diagnosis.source)
+
+                # RAG evidence for the final decision
+                ctx_state = getattr(st.session_state.controller, "state_manager", None)
+                ctx = ctx_state.state.retrieved_context if ctx_state and getattr(ctx_state, "state", None) else []
+                if ctx:
+                    st.markdown("#### Evidence (RAG sources)")
+                    for i, chunk in enumerate(ctx[:5], 1):
+                        source = chunk.get("source", "Unknown")
+                        source_type = chunk.get("source_type", "PDF")  # Default to PDF if not specified
+                        page = chunk.get("metadata", {}).get("page")
+                        snippet = chunk.get("content", "")[:400]
+                        page_info = f" (page {page + 1})" if isinstance(page, int) else ""
+                        
+                        # Add source type tag
+                        source_tag = f"[{source_type}]" if source_type else ""
+                        st.markdown(f"**{i}. {source_tag} {source}{page_info}**")
+                        st.caption(snippet + ("..." if len(snippet) == 400 else ""))
+
+                # Verification
+                st.markdown("---")
+                st.subheader("Hallucination Verification")
+
+                if verification['consistent']:
+                    status = "[OK] Verified"
+                    status_color = "green"
+                else:
+                    status = "[WARNING] Issues Detected"
+                    status_color = "orange"
+
+                st.markdown(f"<div style='color: {status_color}; font-size: 1.2rem;'><b>{status}</b></div>",
+                           unsafe_allow_html=True)
+
+                st.write(f"**Consistency Score**: {verification['consistency_score'] * 100:.1f}%")
+                st.write(f"**Agreement Level**: {verification['agreement']}")
+                st.write(f"**Generations Checked**: {verification['num_generations']}")
+
+                if verification['warnings']:
+                    st.markdown("##### Warnings:")
+                    for warning in verification['warnings']:
+                        st.warning(warning)
+
+                # New diagnosis button
+                if st.button("Start New Diagnosis", key="new_diagnosis_btn"):
+                    st.session_state.controller.reset()
+                    st.session_state.conversation = []
+                    st.session_state.current_question = None
+                    st.session_state.diagnosis_result = None
+                    st.session_state.diagnosis_started = False
+                    st.session_state.awaiting_answer = False
+                    st.rerun()
 
         else:
             # Initial input or multi-turn questions
@@ -300,6 +313,12 @@ def main():
             elif st.session_state.awaiting_answer:
                 # Display current question and get answer
                 st.markdown("### Answer the Question")
+                
+                # Show notification if active gating was triggered
+                if st.session_state.get('gating_triggered', False):
+                    st.info("⚠️ **Verification Alert**: The initial diagnosis had low confidence. Asking one more targeted question to improve accuracy.")
+                    st.session_state.gating_triggered = False  # Clear flag after showing
+                
                 st.info(f"**Question**: {st.session_state.current_question}")
 
                 # Manage answer input state and clearing between runs

@@ -1,16 +1,18 @@
-# ☕ Coffee Disease Diagnosis System - Hallucination-Aware RAG
+# ☕ Coffee Disease Diagnosis System - Advanced RAG with Hybrid Dataset
 
-AI-powered coffee disease diagnosis using RAG with hallucination detection. Defaults to a local OpenAI-compatible model via Ollama (no cloud credits). Claude is optional.
+AI-powered coffee disease diagnosis using Advanced RAG with hybrid JSON+PDF retrieval and hallucination detection. Defaults to a local OpenAI-compatible model via Ollama (no cloud credits). Claude is optional.
 
 ## 🎯 Features
 
+- **Hybrid Dataset Architecture**: Structured JSON knowledge (60%) + PDF evidence (40%) for balanced disease coverage
 - **Multi-turn Interactive Diagnosis**: Iterative clarification questions to gather complete symptom information
+- **Advanced RAG**: Multi-query expansion, hybrid scoring, source diversity, and deduplication
 - **Ambiguity Detection**: Automatically identifies missing symptom details (color, pattern, location, spread)
-- **RAG Retrieval**: Fetches relevant information from PDF knowledge base
+- **Metadata Filtering**: Filter retrieval by symptom type, region, and affected plant parts
 - **CRAG Filtering**: Evaluates and filters retrieved documents for relevance
 - **RAC Question Generation**: Generates clarification questions grounded in retrieved context
-- **Hallucination Detection**: SelfCheckGPT-inspired verification across multiple generations
-- **Streamlit UI**: User-friendly web interface for easy interaction
+- **Active Hallucination Gating**: Verification can request more clarification when uncertain
+- **Streamlit UI**: User-friendly web interface showing JSON/PDF source tags
 - **State Management**: Tracks conversation history and confidence levels
 
 ## 🏗️ System Architecture
@@ -20,20 +22,60 @@ USER INPUT
     ↓
 AMBIGUITY DETECTION (missing info?)
     ↓
-RAG RETRIEVAL (fetch documents)
+MULTI-QUERY EXPANSION (3 query variants)
     ↓
-CRAG FILTERING (evaluate relevance)
+DUAL RETRIEVAL:
+  ├─ JSON Retriever (60%, metadata filtering)
+  └─ PDF Retriever (40%, multi-variant)
     ↓
-CLARIFICATION (ask grounded questions)
+HYBRID SCORING (vector + lexical + variants)
     ↓
-MULTI-TURN LOOP (repeat until confident)
+DEDUPLICATION & SOURCE DIVERSITY
     ↓
-DIAGNOSIS GENERATION (final output)
+CRAG FILTERING (relevance evaluation)
     ↓
-HALLUCINATION CHECK (SelfCheckGPT)
+CLARIFICATION (concise, targeted questions)
     ↓
-UI DISPLAY (results)
+MULTI-TURN LOOP (max 3 questions)
+    ↓
+STRUCTURED DIAGNOSIS (candidate comparison)
+    ↓
+ACTIVE HALLUCINATION GATING
+    ├─ Safe to finalize → DIAGNOSIS
+    └─ Not safe → MORE CLARIFICATION
+    ↓
+UI DISPLAY ([JSON]/[PDF] tagged results)
 ```
+
+## 🗄️ Hybrid Dataset
+
+The system uses a **balanced hybrid approach** to prevent retrieval bias:
+
+### **Dataset Composition:**
+- **Structured JSON** (`data/disease_knowledge.json`): 15 diseases with equal representation (~6-7% each)
+  - Coffee Leaf Rust, Nitrogen Deficiency, Magnesium Deficiency
+  - Coffee Berry Borer, Anthracnose, Brown Eye Spot
+  - Root Rot, Iron Chlorosis, White Stem Borer
+  - Coffee Wilt Disease, Red Spider Mites, Phoma Leaf Spot
+  - Potassium Deficiency, Scale Insects, Zinc Deficiency
+
+- **PDF Documents** (`data/pdfs/`): Supporting evidence and detailed information
+  - `Coffee (1).pdf`
+  - `coffee_cultivation_guide.pdf`
+  - `i4985e.pdf`
+
+### **Advantages:**
+✅ **No bias** - Equal disease representation prevents "always Coffee Leaf Rust" problem  
+✅ **Metadata filtering** - Filter by symptom type (foliar, nutritional, pest, etc.)  
+✅ **Structured parsing** - Clean disease fields (symptoms, treatment, prevention)  
+✅ **Karnataka-specific** - Regional information for local context  
+✅ **Faster retrieval** - Metadata narrows search space  
+✅ **Evidence backing** - PDFs provide supporting documentation
+
+### **Retrieval Ratio:**
+- **60% from JSON**: Primary source for balanced disease coverage
+- **40% from PDF**: Supporting evidence and detailed information
+- Sources tagged as **[JSON]** or **[PDF]** in UI for transparency
 
 ## 📦 Installation
 
@@ -67,10 +109,13 @@ LOG_LEVEL=INFO
 ollama pull phi3
 ```
 
-5) Ensure PDFs exist in `data/pdfs`:
-   - `Coffee (1).pdf`
-   - `coffee_cultivation_guide.pdf`
-   - `i4985e.pdf`
+5) Ensure data files exist:
+   - PDFs in `data/pdfs/`:
+     - `Coffee (1).pdf`
+     - `coffee_cultivation_guide.pdf`
+     - `i4985e.pdf`
+   - JSON in `data/`:
+     - `disease_knowledge.json` (included in project)
 
 ## 🚀 Usage
 
@@ -83,34 +128,74 @@ python -m streamlit run ui/streamlit_app.py
 
 Then open your browser to `http://localhost:8501`
 
-### Command Line Testing (optional)
-- `python test_diagnosis.py "Leaves are turning yellow with brown spots"`
+### Command Line Testing
+```bash
+# Basic diagnosis test
+python tests/test_diagnosis.py "Leaves are turning yellow with brown spots"
+
+# Test hybrid retrieval balance
+python tests/test_hybrid.py
+```
+
+## 🧪 Testing Hybrid Retrieval
+
+Run the hybrid retrieval test to verify balanced disease distribution:
+
+```bash
+python tests/test_hybrid.py
+```
+
+This tests:
+- ✅ No single disease dominates (e.g., not always "Coffee Leaf Rust")
+- ✅ JSON vs PDF ratio (~60/40)
+- ✅ Diverse diagnoses for diverse symptoms
+- ✅ Source diversity (max 2 chunks per source)
+
+**Expected Results:**
+- 8 different symptom queries should yield varied diagnoses
+- Coffee Leaf Rust should be <70% of total diagnoses
+- Each query should show mix of [JSON] and [PDF] sources
 
 ## 📂 Project Structure
 
 ```
 coffee_project/
 ├── data/
-│   ├── Coffee (1).pdf
-│   ├── coffee_cultivation_guide.pdf
-│   └── i4985e.pdf
-├── vector_db/                      # FAISS index (generated)
-├── src/
-│   ├── __init__.py
-│   ├── pdf_loader.py              # PDF loading & chunking
-│   ├── vector_store.py            # FAISS vector database
-│   ├── retriever.py               # RAG retrieval
-│   ├── ambiguity_detector.py      # Symptom analysis
-│   ├── retrieval_evaluator.py     # CRAG filtering
-│   ├── clarification_gen.py       # Question generation (RAC)
-│   ├── state_manager.py           # Conversation state
-│   ├── controller.py              # Multi-turn orchestration
-│   ├── diagnosis_generator.py     # Final diagnosis
-│   └── hallucination_checker.py   # SelfCheckGPT verification
--├── app.py                         # (legacy UI, use ui/streamlit_app.py)
-├── test_diagnosis.py              # CLI test script
-├── requirements.txt               # Dependencies
-└── README.md                      # This file
+│   ├── pdfs/
+│   │   ├── Coffee (1).pdf
+│   │   ├── coffee_cultivation_guide.pdf
+│   │   └── i4985e.pdf
+│   ├── disease_knowledge.json      # Balanced JSON knowledge (15 diseases)
+│   └── vector_db/                  # FAISS indexes (generated)
+├── src/coffee_diagnosis/
+│   ├── core/
+│   │   ├── pdf_loader.py           # PDF loading & chunking
+│   │   ├── vector_store.py         # FAISS vector database
+│   │   ├── json_retriever.py       # JSON disease knowledge retriever
+│   │   ├── retriever.py            # Hybrid retriever (JSON + PDF)
+│   │   └── llm_client.py           # LLM abstraction (local/cloud)
+│   ├── rag/
+│   │   ├── ambiguity_detector.py   # Symptom analysis
+│   │   ├── retrieval_evaluator.py  # CRAG filtering + deduplication
+│   │   ├── clarification_gen.py    # Question generation
+│   │   └── state_manager.py        # Conversation state
+│   └── diagnosis/
+│       ├── controller.py           # Multi-turn orchestration
+│       ├── diagnosis_generator.py  # Structured diagnosis generation
+│       └── hallucination_checker.py# Active gating verification
+├── ui/
+│   └── streamlit_app.py            # Web UI with source tags
+├── tests/
+│   ├── test_diagnosis.py           # CLI diagnosis test
+│   ├── test_hybrid.py              # Hybrid retrieval balance test
+│   └── test_multiturn.py           # Multi-turn conversation test
+├── scripts/
+│   └── diagnose.py                 # Diagnosis helper script
+├── config/
+│   └── settings.py                 # Configuration
+├── requirements.txt                # Dependencies
+├── README.md                       # This file
+└── TESTING_GUIDE.md                # Detailed testing instructions
 ```
 
 ## 🧠 Core Modules

@@ -19,14 +19,14 @@ class RetrievalEvaluator:
 
     def evaluate_chunks(self, chunks: List[Dict], query: str) -> List[Dict]:
         """
-        Evaluate and filter chunks for relevance
+        Evaluate and filter chunks for relevance with deduplication and diversification
 
         Args:
             chunks: List of retrieved document chunks
             query: Original query
 
         Returns:
-            Filtered and scored chunks, sorted by relevance
+            Filtered, deduplicated, and diversified chunks, sorted by relevance
         """
         scored_chunks = []
 
@@ -43,10 +43,16 @@ class RetrievalEvaluator:
         # Filter by threshold
         filtered = [c for c in scored_chunks if c['relevance_score'] >= self.relevance_threshold]
 
-        # Sort by score (descending)
-        filtered.sort(key=lambda x: x['relevance_score'], reverse=True)
+        # Deduplicate
+        deduplicated = self._deduplicate_chunks(filtered)
 
-        return filtered
+        # Diversify sources
+        diversified = self._diversify_sources(deduplicated, max_per_source=2)
+
+        # Sort by score (descending)
+        diversified.sort(key=lambda x: x['relevance_score'], reverse=True)
+
+        return diversified
 
     def _calculate_relevance_score(self, chunk: Dict, query: str) -> float:
         """
@@ -146,3 +152,48 @@ class RetrievalEvaluator:
         """Check if a chunk is relevant to the query"""
         score = self._calculate_relevance_score(chunk, query)
         return score >= self.relevance_threshold
+
+    def _deduplicate_chunks(self, chunks: List[Dict]) -> List[Dict]:
+        """
+        Remove near-duplicate chunks by normalized content prefix
+
+        Uses first 220 characters as dedup key
+        """
+        seen_prefixes = set()
+        unique_chunks = []
+        
+        for chunk in chunks:
+            content = chunk['content']
+            # Normalize: lowercase, remove extra spaces
+            normalized = re.sub(r'\s+', ' ', content.lower()).strip()
+            prefix = normalized[:220]
+            
+            if prefix not in seen_prefixes:
+                seen_prefixes.add(prefix)
+                unique_chunks.append(chunk)
+        
+        return unique_chunks
+
+    def _diversify_sources(self, chunks: List[Dict], max_per_source: int = 2) -> List[Dict]:
+        """
+        Enforce source diversity - limit chunks per source
+
+        Args:
+            chunks: List of chunks
+            max_per_source: Max chunks from same source
+
+        Returns:
+            Diversified chunks
+        """
+        from collections import defaultdict
+        
+        source_counts = defaultdict(int)
+        diverse_chunks = []
+        
+        for chunk in chunks:
+            source = chunk.get('source', 'unknown')
+            if source_counts[source] < max_per_source:
+                diverse_chunks.append(chunk)
+                source_counts[source] += 1
+        
+        return diverse_chunks

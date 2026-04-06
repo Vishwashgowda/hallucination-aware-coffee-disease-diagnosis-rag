@@ -58,33 +58,31 @@ class ClarificationGenerator:
             return "Do you see any other symptoms or changes on the plant?"
 
         # Use Claude to generate smart follow-up questions
-        prompt = f"""You are an expert agricultural specialist diagnosing coffee diseases.
+        prompt = f"""You are helping a farmer diagnose their coffee plant problem. Ask ONE clear, specific question.
 
-User's symptom description so far:
+User's symptoms so far:
 {history_text}
 
-Retrieved information from knowledge base:
-{context_text}
+What's missing: {', '.join(missing_keys)}
 
-        Missing information details needed: {', '.join(missing_keys)}
+RULES FOR YOUR QUESTION:
+1. Maximum 20-25 words - be clear and specific
+2. Ask about ONE thing only (not multiple things)
+3. Use simple, practical language - avoid overly technical terms
+4. End with exactly ONE question mark (?)
+5. NEVER use ?? or multiple question marks
+6. Ask for observable details the farmer can see
+7. Examples of GOOD questions:
+   - "Are the yellow leaves appearing on the older lower branches or on the newer growth at the top?"
+   - "Do the affected leaves have distinct spots with defined edges, or is the discoloration more spread out?"
+   - "Did this yellowing start suddenly within the last few days, or has it been developing slowly over weeks?"
 
-        IMPORTANT:
-1. Ask ONE smart follow-up question to clarify the missing information
-2. The question must be grounded in coffee disease symptoms
-3. Reference what the user ALREADY told you to show continuity
-4. Do NOT assume facts the user hasn't stated; avoid presupposing specifics like "older leaves" unless the user mentioned it. If you need to know, ask neutrally (e.g., "Are the yellow leaves on older or newer growth?")
-5. If you want to check for a symptom mentioned only in the knowledge base, frame it as a possibility ("Some diseases cause brown margins—do you see that?") rather than stating it already happened.
-6. Ask naturally, not like a form
-7. Keep it concise (1 sentence)
-8. Do NOT ask yes/no questions - ask for details
-9. Make the question flow naturally from what they said
+8. BAD - DO NOT copy these patterns:
+   - Using ?? at the end (NEVER DO THIS)
+   - Overly technical disease names or scientific terminology
+   - Multiple sub-questions bundled together
 
-Example good questions:
-- "You mentioned yellow spots - do you see them mostly on older leaves or newer growth?"
-- "Since the browning started recently, has it spread to the stem or is it just on leaves?"
-- "Are the spots dry and papery, or do they feel soft and wet?"
-
-Generate ONE natural follow-up question:"""
+Generate ONE clear question (20-25 words, ending with one ?):"""
 
         try:
             question = self.llm.chat(
@@ -132,22 +130,22 @@ Generate ONE natural follow-up question:"""
         else:
             missing_keys = missing_info if isinstance(missing_info, list) else []
 
-        # More detailed, technical questions based on coffee disease symptoms
+        # Simple, short questions (max 15 words each)
         fallback_questions = {
-            'color': "Is the discoloration yellow, brown, red, or black? Does it appear between the veins, on the leaf margins, or all over?",
-            'pattern': "Does the damage appear as circular spots, streaks, patches, or does the tissue look wilted/twisted? Are the spots round with concentric rings?",
-            'location': "Are the symptoms on the oldest leaves first progressing upward, or are they scattered throughout the canopy? Are stems, petioles (leaf stalks), or only leaf blades affected?",
-            'spread': "Does the yellowing appear on the oldest leaves (starting from petiole and midrib) or on the youngest leaves? Is it isolated to one side of the plant?",
-            'timing': "Did the symptoms appear suddenly or gradually? Are they getting worse daily, weekly, or staying the same?",
-            'texture': "Do the affected areas feel dry and papery, soft and waterlogged, or powdery? Is there a visible coating or fungal growth?",
-            'berry_fruit': "Are the coffee berries affected? Do they show spots, rot, or borer holes? What is their color - green, red, or black?",
+            'color': "What color is the problem area - yellow, brown, black, or red?",
+            'pattern': "Are there distinct spots or is the discoloration spread out?",
+            'location': "Which leaves are affected - older ones or newer growth?",
+            'spread': "Where on the plant do you see the symptoms?",
+            'timing': "Did this appear suddenly or develop slowly over time?",
+            'texture': "Do affected areas look dry, wet, or powdery?",
+            'berry_fruit': "Are the coffee berries showing any problems?",
         }
 
-        # Ask about the first missing attribute with more detail
+        # Ask about the first missing attribute
         if missing_keys:
-            return fallback_questions.get(missing_keys[0], "Can you describe the symptoms in more detail, including color, texture, and affected plant parts?")
+            return fallback_questions.get(missing_keys[0], "Can you describe what you see in more detail?")
 
-        return "Do you observe any other changes like wilting, leaf curling (whiptail), yellowing between veins, or unusual growth patterns?"
+        return "Do you notice any other unusual changes on the plant?"
 
     def _clean_question(self, question: str) -> str:
         """Keep only the main question line and ensure it ends with a question mark."""
@@ -168,8 +166,33 @@ Generate ONE natural follow-up question:"""
             if idx > 0:
                 question = question[:idx].strip()
 
-        if not question.endswith("?"):
+        # Fix malformed endings
+        # First, remove any trailing quotes (but preserve question marks inside them)
+        # Then ensure proper question mark at the end
+        
+        # Remove double/triple question marks: text?? or text??? → text?
+        while question.endswith('??'):
+            question = question[:-1]
+        
+        # Remove patterns like: text"? → text?
+        if question.endswith('"?'):
+            question = question[:-2] + '?'
+        elif question.endswith("'?"):
+            question = question[:-2] + '?'
+        # Remove patterns like: text." or text.' → text?
+        elif question.endswith('."'):
+            question = question[:-2] + '?'
+        elif question.endswith(".'"):
+            question = question[:-2] + '?'
+        # Remove trailing quotes without question mark: text" → text?
+        elif question.endswith('"'):
+            question = question[:-1] + '?'
+        elif question.endswith("'"):
+            question = question[:-1] + '?'
+        # Ensure question mark at end
+        elif not question.endswith("?"):
             question = question.rstrip(".") + "?"
+        
         return question
 
     def validate_question(self, question: str, context: List[Dict]) -> bool:
