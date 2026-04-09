@@ -6,9 +6,11 @@ Tests the new start_diagnosis() and submit_answer() methods
 import sys
 from pathlib import Path
 
-# Add project src directory to path
+# Ensure both project root (for `config`) and src (for package imports) are importable
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 

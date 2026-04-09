@@ -5,7 +5,16 @@ Tests balanced disease distribution
 
 import sys
 import os
-sys.path.insert(0, os.path.abspath("src"))
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SRC_DIR = PROJECT_ROOT / "src"
+
+# Ensure both project root (for `config`) and src (for package imports) are importable
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from coffee_diagnosis.diagnosis.controller import CoffeeDiagnosisController
 
@@ -33,8 +42,8 @@ def test_hybrid_retrieval():
         # Initialize controller
         print("\n[1/3] Initializing system...")
         controller = CoffeeDiagnosisController(
-            data_dir="data",
-            vector_db_path="data/vector_db"
+            data_dir=str(PROJECT_ROOT / "data" / "pdfs"),
+            vector_db_path=str(PROJECT_ROOT / "data" / "vector_db")
         )
         
         print("\n[2/3] Running test queries...")
@@ -49,24 +58,32 @@ def test_hybrid_retrieval():
             response = controller.start_diagnosis(query)
             
             if response['status'] == 'question':
-                # Skip clarification, get diagnosis directly
-                diag_response = controller.continue_with_answer("skip to diagnosis")
-                if diag_response['status'] == 'diagnosis':
-                    diagnosis = diag_response['diagnosis']
-                    disease = diagnosis['disease']
+                # Continue the loop with a neutral uncertain answer
+                # until diagnosis is produced or max turns reached.
+                turns = 0
+                current = response
+                while current.get('status') == 'question' and turns < 5:
+                    current = controller.submit_answer("not sure")
+                    turns += 1
+
+                if current.get('status') == 'diagnosis':
+                    diagnosis = current['diagnosis']
+                    disease = diagnosis.disease_name
                     print(f"  → Diagnosis: {disease}")
-                    
+
                     # Track disease counts
                     results[disease] = results.get(disease, 0) + 1
-                    
+
                     # Show sources
                     ctx = controller.state_manager.state.retrieved_context
                     json_count = sum(1 for c in ctx if c.get('source_type') == 'JSON')
                     pdf_count = sum(1 for c in ctx if c.get('source_type') == 'PDF')
                     print(f"  → Sources: {json_count} JSON, {pdf_count} PDF")
+                else:
+                    print("  → No diagnosis returned within expected turns")
             elif response['status'] == 'diagnosis':
                 diagnosis = response['diagnosis']
-                disease = diagnosis['disease']
+                disease = diagnosis.disease_name
                 print(f"  → Diagnosis: {disease}")
                 results[disease] = results.get(disease, 0) + 1
                 

@@ -176,19 +176,23 @@ Provide the structured diagnosis now:"""
                 disease_name = line.split(":", 1)[1].strip() or disease_name
                 break
 
-        # Coffee diseases database
+        # Coffee diseases database (expanded for hybrid JSON coverage)
         known_diseases = {
-            'leaf rust': ['rust', 'orange', 'powder', 'underside'],
-            'coffee leaf miner': ['miner', 'tunnel', 'winding', 'leaf'],
-            'brown eye spot': ['brown eye', 'eye spot', 'spot disease'],
-            'anthracnose': ['anthracnose', 'black rot'],
-            'root rot': ['root rot', 'wet soil', 'soggy'],
-            'stem canker': ['canker', 'lesion', 'branch', 'gum'],
-            'branch canker': ['canker', 'lesion', 'branch', 'oozing'],
-            'coffee berry borer': ['borer', 'berry'],
-            'scale insect': ['scale'],
-            'red spider mite': ['mite', 'red'],
-            'nitrogen deficiency': ['nitrogen', 'yellowing', 'deficiency'],
+            'coffee leaf rust': ['rust', 'orange', 'powder', 'underside'],
+            'brown eye spot': ['brown eye', 'eye spot', 'circular spots'],
+            'anthracnose': ['anthracnose', 'sunken', 'berry', 'pink'],
+            'root rot': ['root rot', 'brown roots', 'waterlogged', 'wilting'],
+            'coffee berry borer': ['borer', 'berry', 'holes'],
+            'scale insects': ['scale', 'honeydew', 'sooty'],
+            'red spider mites': ['mite', 'mites', 'speckles', 'bronze'],
+            'nitrogen deficiency': ['nitrogen', 'uniform yellowing', 'older leaves'],
+            'magnesium deficiency': ['magnesium', 'interveinal', 'veins green'],
+            'iron chlorosis': ['iron chlorosis', 'young leaves', 'veins remain green'],
+            'potassium deficiency': ['potassium', 'leaf margins', 'crispy', 'necrosis'],
+            'zinc deficiency': ['zinc', 'small leaves', 'rosette'],
+            'phoma leaf spot': ['phoma', 'tip', 'margin', 'irregular brown'],
+            'white stem borer': ['stem borer', 'sawdust', 'stem holes'],
+            'coffee wilt disease': ['vascular', 'progressive wilting', 'top branches'],
         }
 
         # Convert text to lowercase for searching
@@ -205,29 +209,34 @@ Provide the structured diagnosis now:"""
                 best_match = disease
 
         if best_match and best_score > 0:
-            disease_name = best_match.title()
+            disease_name = self._canonicalize_disease_name(best_match)
         else:
             # Fallback: look for disease keywords in order
             disease_patterns = [
                 'coffee leaf rust',
                 'leaf rust',
-                'stem canker',
-                'branch canker',
                 'root rot',
                 'anthracnose',
                 'brown eye spot',
-                'coffee leaf miner',
+                'coffee berry borer',
                 'berry borer',
+                'scale insects',
                 'scale insect',
+                'red spider mites',
                 'red spider mite',
                 'nitrogen deficiency',
-                'phosphorus deficiency',
+                'magnesium deficiency',
+                'iron chlorosis',
                 'potassium deficiency',
+                'zinc deficiency',
+                'phoma leaf spot',
+                'white stem borer',
+                'coffee wilt disease',
             ]
 
             for pattern in disease_patterns:
                 if pattern in text_lower:
-                    disease_name = pattern.title()
+                    disease_name = self._canonicalize_disease_name(pattern)
                     break
 
         # Extract reason, treatment, prevention from specific sections
@@ -288,6 +297,23 @@ Provide the structured diagnosis now:"""
             prevention=prevention if prevention else "Preventive measures recommended",
             source=source
         )
+
+    def _canonicalize_disease_name(self, name: str) -> str:
+        """Map aliases to canonical disease names."""
+        n = (name or "").strip().lower()
+        alias_map = {
+            "leaf rust": "Coffee Leaf Rust",
+            "coffee leaf rust": "Coffee Leaf Rust",
+            "berry borer": "Coffee Berry Borer",
+            "coffee berry borer": "Coffee Berry Borer",
+            "scale insect": "Scale Insects",
+            "scale insects": "Scale Insects",
+            "red spider mite": "Red Spider Mites",
+            "red spider mites": "Red Spider Mites",
+        }
+        if n in alias_map:
+            return alias_map[n]
+        return (name or "").strip().title()
 
     def _clean_markdown_headers(self, text: str) -> str:
         """Remove markdown headers (# ## ###) that cause large font rendering in UI"""

@@ -44,6 +44,7 @@ class ClarificationGenerator:
 
         # Create a concise list of what's missing
         missing_keys = list(missing_info.keys()) if missing_info else []
+        user_text = f"{query} {' '.join(previous_answers)}".lower()
 
         # Off-topic guard: if the user hasn't mentioned coffee plants or plant symptoms, redirect
         combined_text = f"{query} {' '.join(previous_answers)}".lower()
@@ -72,15 +73,19 @@ RULES FOR YOUR QUESTION:
 4. End with exactly ONE question mark (?)
 5. NEVER use ?? or multiple question marks
 6. Ask for observable details the farmer can see
-7. Examples of GOOD questions:
+7. Use ONLY symptoms already mentioned by the user. Do NOT introduce new symptoms.
+8. If user only said "wilting", ask about wilting details only (not yellowing/spots unless user said them).
+9. Examples of GOOD questions:
    - "Are the yellow leaves appearing on the older lower branches or on the newer growth at the top?"
    - "Do the affected leaves have distinct spots with defined edges, or is the discoloration more spread out?"
    - "Did this yellowing start suddenly within the last few days, or has it been developing slowly over weeks?"
+   - "Is the wilting affecting the whole plant or only some branches?"
 
-8. BAD - DO NOT copy these patterns:
+10. BAD - DO NOT copy these patterns:
    - Using ?? at the end (NEVER DO THIS)
    - Overly technical disease names or scientific terminology
    - Multiple sub-questions bundled together
+   - Asking about yellowing/spots when user only reported wilting
 
 Generate ONE clear question (20-25 words, ending with one ?):"""
 
@@ -91,12 +96,15 @@ Generate ONE clear question (20-25 words, ending with one ?):"""
             )
 
             question = self._clean_question(question)
+            # Guard against introducing symptoms user never mentioned
+            if self._is_assumptive(question, user_text):
+                return self._generate_fallback_question(missing_keys, user_text=user_text)
             return question
 
         except Exception as e:
             print(f"[ERROR] Failed to generate question: {str(e)}")
             # Fallback to a generic but smart question
-            return self._generate_fallback_question(missing_keys)
+            return self._generate_fallback_question(missing_keys, user_text=user_text)
 
     def _format_context(self, context: List[Dict]) -> str:
         """Format context chunks for the prompt"""
@@ -122,7 +130,7 @@ Generate ONE clear question (20-25 words, ending with one ?):"""
 
         return history
 
-    def _generate_fallback_question(self, missing_info) -> str:
+    def _generate_fallback_question(self, missing_info, user_text: str = "") -> str:
         """Generate a smart fallback question when API fails"""
         # missing_info is now a list of keys like ['color', 'pattern']
         if isinstance(missing_info, dict):
@@ -141,11 +149,34 @@ Generate ONE clear question (20-25 words, ending with one ?):"""
             'berry_fruit': "Are the coffee berries showing any problems?",
         }
 
+        # If user mentioned wilting only, keep follow-up strictly about wilting details
+        if "wilt" in (user_text or "") and "yellow" not in (user_text or "") and "spot" not in (user_text or ""):
+            wilt_specific = {
+                'location': "Is the wilting affecting the whole plant or only some branches?",
+                'spread': "Did the wilting spread gradually or suddenly across the plant?",
+                'timing': "When did the wilting first start?",
+                'pattern': "Is the wilting constant all day or worse at certain times?"
+            }
+            if missing_keys and missing_keys[0] in wilt_specific:
+                return wilt_specific[missing_keys[0]]
+
         # Ask about the first missing attribute
         if missing_keys:
             return fallback_questions.get(missing_keys[0], "Can you describe what you see in more detail?")
 
         return "Do you notice any other unusual changes on the plant?"
+
+    def _is_assumptive(self, question: str, user_text: str) -> bool:
+        """Detect if generated question introduces symptoms absent in user description."""
+        if not question:
+            return False
+        q = question.lower()
+        user = user_text.lower()
+        symptom_terms = ["yellow", "yellowing", "spot", "spots", "powder", "orange", "ring", "margin", "vein"]
+        for term in symptom_terms:
+            if term in q and term not in user:
+                return True
+        return False
 
     def _clean_question(self, question: str) -> str:
         """Keep only the main question line and ensure it ends with a question mark."""

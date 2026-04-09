@@ -93,16 +93,22 @@ Symptoms:
     
     def _build_index(self):
         """Build FAISS index for JSON chunks"""
-        # Extract just the text for indexing
-        texts = [chunk['content'] for chunk in self.chunks]
-        
-        # Create vector store
+        # Create a dedicated FAISS store for JSON chunks
+        json_index_dir = str(Path(self.json_path).resolve().parent / "vector_db_json")
         self.vector_store = FAISSVectorStore(
-            embeddings=self.embeddings,
-            index_path=None  # Don't save JSON index separately
+            model_name="all-MiniLM-L6-v2",
+            vector_db_path=json_index_dir
         )
-        
-        # Add documents with metadata
+
+        # Reuse the same embedding model object from the main PDF vector store (if provided)
+        if self.embeddings is not None:
+            self.vector_store.embedding_model = self.embeddings
+
+        # Build/load index from documents with metadata
+        json_signature = self._compute_json_signature()
+        if self.vector_store.load_index(expected_signature=json_signature):
+            return
+
         from langchain_core.documents import Document
         docs = []
         for chunk in self.chunks:
@@ -111,8 +117,14 @@ Symptoms:
                 metadata=chunk['metadata']
             )
             docs.append(doc)
-        
-        self.vector_store.add_documents(docs)
+
+        self.vector_store.create_index(docs, source_signature=json_signature)
+
+    def _compute_json_signature(self) -> str:
+        """Signature from JSON file modified time + size."""
+        p = Path(self.json_path)
+        stat = p.stat()
+        return f"{p.name}:{int(stat.st_mtime)}:{stat.st_size}"
     
     def retrieve(
         self, 

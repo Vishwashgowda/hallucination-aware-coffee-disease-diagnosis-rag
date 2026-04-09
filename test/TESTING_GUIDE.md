@@ -28,7 +28,7 @@ This guide helps you systematically test the coffee disease diagnosis system wit
 
 #### Automated Test
 ```bash
-python tests/test_hybrid.py
+python test/test_hybrid.py
 ```
 
 **What it Tests**:
@@ -232,7 +232,7 @@ python -m streamlit run ui/streamlit_app.py
 
 #### Option 2: CLI Testing (Faster)
 ```bash
-python tests/test_diagnosis.py "Leaves are turning yellow"
+python test/test_diagnosis.py "Leaves are turning yellow"
 ```
 - Observe terminal output
 - Check retrieved sources
@@ -240,7 +240,7 @@ python tests/test_diagnosis.py "Leaves are turning yellow"
 
 #### Option 3: Automated Hybrid Test
 ```bash
-python tests/test_hybrid.py
+python test/test_hybrid.py
 ```
 - Tests 8 diverse symptom scenarios
 - Measures disease distribution
@@ -296,7 +296,7 @@ for test in test_cases:
 
 | Metric | How to Measure | Target |
 |--------|----------------|--------|
-| **Disease Distribution** | Run `python tests/test_hybrid.py` | No disease >70% |
+| **Disease Distribution** | Run `python test/test_hybrid.py` | No disease >70% |
 | **JSON/PDF Ratio** | Check UI source tags | ~60% JSON, ~40% PDF |
 | **Source Diversity** | Count unique sources in evidence | ≥ 2 sources |
 | **Question Quality** | Manually review questions | Concise (20-25 words), no ?? |
@@ -423,7 +423,7 @@ Run these tests to quickly validate the hybrid system:
 
 ```bash
 # Test 1: Automated balance check
-python tests/test_hybrid.py
+python test/test_hybrid.py
 # Expected: Coffee Leaf Rust <70%, diverse diagnoses
 
 # Test 2: UI source tags
@@ -439,3 +439,4 @@ python -m streamlit run ui/streamlit_app.py
 ---
 
 **Good luck testing! 🎉** The hybrid system should show clear improvements in balanced disease coverage and source transparency.
+

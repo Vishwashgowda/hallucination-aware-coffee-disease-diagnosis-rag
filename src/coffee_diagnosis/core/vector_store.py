@@ -9,6 +9,7 @@ from typing import List, Optional
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import faiss
+import pickle
 
 
 class FAISSVectorStore:
@@ -26,8 +27,9 @@ class FAISSVectorStore:
         self.index = None
         self.documents = []
         self.dim = 384 if "L6" in model_name else 768  # embedding dimension
+        self.source_signature = None
 
-    def create_index(self, documents: List) -> None:
+    def create_index(self, documents: List, source_signature: Optional[str] = None) -> None:
         """
         Create FAISS index from documents
 
@@ -48,6 +50,7 @@ class FAISSVectorStore:
         self.index.add(embeddings)
 
         self.documents = documents
+        self.source_signature = source_signature
         print(f"Index created with {len(documents)} documents")
 
         # Save index
@@ -57,17 +60,47 @@ class FAISSVectorStore:
         """Save FAISS index to disk"""
         os.makedirs(self.vector_db_path, exist_ok=True)
         index_path = os.path.join(self.vector_db_path, "faiss_index.bin")
+        docs_path = os.path.join(self.vector_db_path, "documents.pkl")
         faiss.write_index(self.index, index_path)
         print(f"Index saved to {index_path}")
+        with open(docs_path, "wb") as f:
+            pickle.dump(
+                {
+                    "documents": self.documents,
+                    "source_signature": self.source_signature,
+                    "model_name": self.model_name,
+                },
+                f,
+            )
 
-    def _load_index(self) -> bool:
-        """Load FAISS index from disk"""
+    def load_index(self, expected_signature: Optional[str] = None) -> bool:
+        """Load FAISS index and cached documents from disk if present and fresh."""
         index_path = os.path.join(self.vector_db_path, "faiss_index.bin")
-        if os.path.exists(index_path):
+        docs_path = os.path.join(self.vector_db_path, "documents.pkl")
+        if not (os.path.exists(index_path) and os.path.exists(docs_path)):
+            return False
+
+        try:
+            with open(docs_path, "rb") as f:
+                cache = pickle.load(f)
+            cached_signature = cache.get("source_signature")
+
+            if expected_signature is not None and cached_signature != expected_signature:
+                print("Cached index is stale. Rebuilding...")
+                return False
+
             self.index = faiss.read_index(index_path)
+            self.documents = cache.get("documents", [])
+            self.source_signature = cached_signature
+
+            if not self.documents:
+                print("Cached index missing documents. Rebuilding...")
+                return False
+
             print(f"Index loaded from {index_path}")
             return True
-        return False
+        except Exception:
+            return False
 
     def search(self, query: str, k: int = 5) -> List[tuple]:
         """

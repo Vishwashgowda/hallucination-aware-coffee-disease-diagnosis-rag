@@ -5,6 +5,7 @@ Verifies consistency of diagnoses to detect hallucinations
 
 from typing import List, Dict, Optional
 from coffee_diagnosis.core.llm_client import LLMClient
+from collections import Counter
 
 
 class HallucinationChecker:
@@ -126,66 +127,107 @@ Diagnosis (just the disease name and key symptoms)."""
         Returns:
             Consistency report
         """
-        # Extract disease names
+        # Extract and normalize disease names from each generation
         disease_names = []
         for diagnosis in diagnoses:
-            # Simple extraction - get first capitalized word or phrase
-            words = diagnosis.split()
-            if words:
-                disease_names.append(self._extract_disease_name(diagnosis))
+            if diagnosis and diagnosis.strip():
+                extracted = self._extract_disease_name(diagnosis)
+                disease_names.append(self._normalize_disease_name(extracted))
 
-        # Check consistency
+        if not disease_names:
+            return {
+                'consistent': False,
+                'consistency_score': 0.0,
+                'disease_name': "Unknown",
+                'all_diseases': [],
+                'hallucination_detected': True,
+                'warnings': ["[WARNING] Could not extract diagnosis from verification generations"],
+                'num_generations': self.num_generations,
+                'agreement': "0%",
+                'safe_to_finalize': False
+            }
+
+        counts = Counter(disease_names)
+        majority_disease, majority_count = counts.most_common(1)[0]
+        consistency_score = majority_count / max(len(disease_names), 1)
         consistent_diseases = set(disease_names)
-        consistency_score = 1.0 if len(consistent_diseases) == 1 else 0.5
 
-        hallucination_detected = False
         warnings = []
-
-        if len(consistent_diseases) > 1:
-            hallucination_detected = True
+        # Flag as hallucination only when no strong majority agreement.
+        hallucination_detected = consistency_score < 0.67
+        if hallucination_detected:
             warnings.append(
-                f"[WARNING] Multiple different diagnoses generated: {', '.join(consistent_diseases)}"
+                f"[WARNING] Low diagnosis agreement across generations: {dict(counts)}"
             )
 
-        # Check if treatment recommendations are consistent
-        treatment_consistency = self._check_treatment_consistency(diagnoses)
-        if treatment_consistency < 0.7:
-            hallucination_detected = True
-            warnings.append("[WARNING] Treatment recommendations inconsistent across runs")
-
-        # Extract key symptoms and check consistency
-        symptom_mentions = self._extract_symptoms(diagnoses)
-        if len(symptom_mentions) > 5:
-            hallucination_detected = True
-            warnings.append("[WARNING] Symptoms vary significantly across generations")
-
-        # Safety signal for active gating: check if safe to finalize
-        safe_to_finalize = consistency_score >= 0.8 and not hallucination_detected
+        # Safety signal for active gating
+        safe_to_finalize = consistency_score >= 0.67 and not hallucination_detected
 
         return {
             'consistent': not hallucination_detected,
             'consistency_score': consistency_score,
-            'disease_name': list(consistent_diseases)[0] if consistent_diseases else "Unknown",
+            'disease_name': majority_disease if majority_disease else "Unknown",
             'all_diseases': list(consistent_diseases),
             'hallucination_detected': hallucination_detected,
             'warnings': warnings,
             'num_generations': self.num_generations,
-            'agreement': f"{int((1 - len(consistent_diseases) / self.num_generations) * 100)}%",
+            'agreement': f"{int(consistency_score * 100)}%",
             'safe_to_finalize': safe_to_finalize
         }
 
     def _extract_disease_name(self, diagnosis_text: str) -> str:
         """Extract disease name from diagnosis text"""
-        # Simple heuristic: first line or first capitalized phrase
+        text = diagnosis_text.lower()
+
+        known_patterns = [
+            "coffee leaf rust",
+            "leaf rust",
+            "coffee berry borer",
+            "brown eye spot",
+            "anthracnose",
+            "root rot",
+            "coffee wilt disease",
+            "white stem borer",
+            "red spider mites",
+            "red spider mite",
+            "scale insects",
+            "scale insect",
+            "nitrogen deficiency",
+            "magnesium deficiency",
+            "iron chlorosis",
+            "zinc deficiency",
+            "potassium deficiency",
+            "phoma leaf spot",
+        ]
+
+        for pattern in known_patterns:
+            if pattern in text:
+                return pattern.title()
+
+        # Fallback to first line if no known disease phrase is found
         lines = diagnosis_text.split('\n')
         if lines:
-            line = lines[0].strip()
-            # Remove common prefixes
-            for prefix in ['Disease:', 'Diagnosis:', 'The']:
-                if line.startswith(prefix):
-                    line = line[len(prefix):].strip()
-            return line
+            return lines[0].strip()
         return "Unknown"
+
+    def _normalize_disease_name(self, disease_name: str) -> str:
+        """Normalize aliases to canonical disease names."""
+        if not disease_name:
+            return "Unknown"
+        d = disease_name.strip().lower()
+        alias_map = {
+            "leaf rust": "Coffee Leaf Rust",
+            "coffee leaf rust": "Coffee Leaf Rust",
+            "berry borer": "Coffee Berry Borer",
+            "coffee berry borer": "Coffee Berry Borer",
+            "red spider mite": "Red Spider Mites",
+            "red spider mites": "Red Spider Mites",
+            "scale insect": "Scale Insects",
+            "scale insects": "Scale Insects",
+        }
+        if d in alias_map:
+            return alias_map[d]
+        return disease_name.strip().title()
 
     def _check_treatment_consistency(self, diagnoses: List[str]) -> float:
         """Check if treatment recommendations are similar"""

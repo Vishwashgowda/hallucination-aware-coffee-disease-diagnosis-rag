@@ -18,6 +18,7 @@ from .hallucination_checker import HallucinationChecker
 from coffee_diagnosis.core.llm_client import LLMClient
 from config import settings
 import os
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
@@ -48,22 +49,32 @@ class CoffeeDiagnosisController:
             num_generations=settings.NUM_GENERATIONS_FOR_VERIFICATION
         )
 
-        # Initialize vector store for PDFs
-        print("[LOAD] Loading PDFs and creating vector store...")
-        pdf_loader = PDFLoader(data_dir=data_dir)
-        documents = pdf_loader.load_pdfs()
-
+        # Initialize vector store for PDFs (load cache if unchanged, else rebuild)
+        print("[LOAD] Initializing PDF vector store...")
         self.vector_store = FAISSVectorStore(vector_db_path=vector_db_path)
-        self.vector_store.create_index(documents)
+
+        pdf_signature = self._compute_pdf_signature(data_dir)
+        if not self.vector_store.load_index(expected_signature=pdf_signature):
+            print("[LOAD] Cache miss/stale. Loading PDFs and creating vector store...")
+            pdf_loader = PDFLoader(data_dir=data_dir)
+            documents = pdf_loader.load_pdfs()
+            self.vector_store.create_index(documents, source_signature=pdf_signature)
+        else:
+            print("[LOAD] Reusing cached PDF index")
 
         # Initialize JSON retriever for structured disease knowledge
-        json_path = os.path.join(data_dir, 'disease_knowledge.json')
+        # Support both data_dir=".../data" and data_dir=".../data/pdfs"
+        if os.path.basename(os.path.normpath(data_dir)).lower() == "pdfs":
+            json_base_dir = os.path.dirname(data_dir)
+        else:
+            json_base_dir = data_dir
+        json_path = os.path.join(json_base_dir, 'disease_knowledge.json')
         json_retriever = None
         if os.path.exists(json_path):
             print("[LOAD] Loading structured JSON disease knowledge...")
             json_retriever = JSONRetriever(
                 json_path=json_path,
-                embeddings=self.vector_store.embeddings
+                embeddings=self.vector_store.embedding_model
             )
             print(f"[OK] Loaded {len(json_retriever.diseases)} diseases from JSON")
         else:
@@ -77,6 +88,15 @@ class CoffeeDiagnosisController:
         )
 
         print("[OK] System initialized successfully!\n")
+
+    def _compute_pdf_signature(self, data_dir: str) -> str:
+        """Build a simple freshness signature from PDF names + modified times + sizes."""
+        pdf_paths = sorted(Path(data_dir).glob("*.pdf"))
+        parts = []
+        for p in pdf_paths:
+            stat = p.stat()
+            parts.append(f"{p.name}:{int(stat.st_mtime)}:{stat.st_size}")
+        return "|".join(parts)
 
     def diagnose_web(self, initial_query: str) -> Dict:
         """
@@ -342,13 +362,22 @@ class CoffeeDiagnosisController:
         print(f"\n[USER_ANSWER] {answer}\n")
 
         if not self._matches_context_or_coffee(answer):
+            if self._is_binary_clarification_response(answer):
+                # Accept short yes/no-style clarifications when they answer
+                # the current question context, and preserve which attribute it
+                # referred to for downstream ambiguity resolution.
+                self.state_manager.add_user_response(
+                    self._tagged_clarification_response(answer)
+                )
             # Allow "not sure" / "don't know" type responses as valid (neutral info)
-            uncertain_phrases = ['not sure', "don't know", "dont know", "not certain", 
+            uncertain_phrases = ['not sure', "don't know", "dont know", "not certain",
                                 "can't tell", "cant tell", "unsure", "no idea"]
             if any(phrase in answer.lower() for phrase in uncertain_phrases):
                 # Mark this as uncertain but continue with next question
                 self.state_manager.add_user_response(f"User uncertain: {answer}")
                 print(f"[NOTE] User expressed uncertainty, continuing...\n")
+            elif self._is_binary_clarification_response(answer):
+                print("[NOTE] Accepted short clarification response, continuing...\n")
             else:
                 return {
                     'status': 'off_topic',
@@ -585,3 +614,28 @@ class CoffeeDiagnosisController:
                 return True
 
         return False
+
+    def _is_binary_clarification_response(self, text: str) -> bool:
+        """Allow short yes/no-style replies for follow-up clarification turns."""
+        if not text:
+            return False
+
+        normalized = " ".join(text.strip().lower().split())
+        if not normalized:
+            return False
+
+        binary_phrases = {
+            "yes", "yeah", "yep", "y", "correct", "true",
+            "no", "nope", "nah", "n", "false",
+            "yes mostly", "yes partly", "partly", "partially",
+            "not really", "a little", "slightly",
+        }
+        return normalized in binary_phrases
+
+    def _tagged_clarification_response(self, answer: str) -> str:
+        """Attach latest asked attribute so brief replies carry usable context."""
+        normalized = " ".join((answer or "").strip().split()).lower()
+        attrs = self.state_manager.state.asked_about_attributes
+        if attrs:
+            return f"{attrs[-1]}: {normalized}"
+        return normalized
