@@ -98,6 +98,55 @@ class CoffeeDiagnosisController:
             parts.append(f"{p.name}:{int(stat.st_mtime)}:{stat.st_size}")
         return "|".join(parts)
 
+    def _predict_likely_diseases(self, query: str, context: List[Dict]) -> List[str]:
+        """
+        Predict the most likely diseases based on initial query and retrieved context
+
+        Args:
+            query: User's initial symptom query
+            context: Retrieved context chunks
+
+        Returns:
+            List of likely disease names, ordered by probability
+        """
+        # Extract disease mentions from context
+        diseases_mentioned = set()
+        query_lower = query.lower()
+
+        # Check retrieved documents for disease names
+        for doc in context:
+            content = doc.get('content', '').lower()
+            # Simple keyword matching - check against known disease names
+            disease_keywords = [
+                ('coffee leaf rust', 'Coffee Leaf Rust'),
+                ('red spider mite', 'Red Spider Mites'),
+                ('brown eye spot', 'Brown Eye Spot'),
+                ('phoma leaf', 'Coffee Phoma Leaf Spot'),
+                ('cercospora', 'Cercospora Leaf Spot'),
+                ('anthracnose', 'Anthracnose'),
+                ('root rot', 'Root Rot / Wilt Disease'),
+                ('nitrogen deficiency', 'Nitrogen Deficiency'),
+                ('iron deficiency', 'Iron Deficiency'),
+                ('potassium deficiency', 'Potassium Deficiency'),
+                ('magnesium deficiency', 'Magnesium Deficiency'),
+                ('boron deficiency', 'Boron Deficiency'),
+                ('zinc deficiency', 'Zinc Deficiency'),
+                ('bacterial canker', 'Bacterial Canker'),
+                ('coffee berry borer', 'Coffee Berry Borer'),
+                ('leaf miner', 'Leaf Miner Damage'),
+            ]
+
+            for keyword, disease_name in disease_keywords:
+                if keyword in content:
+                    diseases_mentioned.add(disease_name)
+
+        # If we found diseases in context, return them
+        if diseases_mentioned:
+            return list(diseases_mentioned)
+
+        # Otherwise return empty list (use generic questions)
+        return []
+
     def diagnose_web(self, initial_query: str) -> Dict:
         """
         Run diagnosis for web interface (no interactive input)
@@ -170,8 +219,9 @@ class CoffeeDiagnosisController:
         """
         print(f"\n[QUERY] Initial Query: {initial_query}\n")
 
-        # Initialize state
+        # Initialize state and reset priority tracking
         self.state_manager.initialize(initial_query)
+        self.clarification_gen.reset_priority_tracking()
 
         # Main loop
         while True:
@@ -218,11 +268,21 @@ class CoffeeDiagnosisController:
             # Step 5: Generate clarification question (RAC)
             if missing_info or filtered_docs:
                 print("\n[STEP4] Generating clarification question...")
+                
+                # Predict likely diseases to guide question generation
+                suspected_diseases = self._predict_likely_diseases(
+                    self.state_manager.state.initial_query,
+                    filtered_docs
+                )
+                if suspected_diseases:
+                    print(f"[DEBUG] Suspected diseases: {suspected_diseases}")
+                
                 question = self.clarification_gen.generate_question(
                     self.state_manager.state.initial_query,
                     filtered_docs,
                     self.state_manager.state.user_responses,
-                    missing_info
+                    missing_info,
+                    suspected_diseases=suspected_diseases
                 )
                 print(f"\nSystem: {question}\n")
                 self.state_manager.add_system_question(question)
