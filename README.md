@@ -88,33 +88,39 @@ Evidence is tagged by source type (`[JSON]` and `[PDF]`) in the UI and internal 
 ```text
 GenAi project/
 ├── config/
+│   └── settings.py
 ├── data/
 │   ├── disease_knowledge.json
+│   ├── disease_question_priorities.json
 │   ├── pdfs/
 │   ├── vector_db/
 │   └── vector_db_json/
-├── paper/
-│   ├── coffee_disease_diagnosis_ieee.tex
-│   ├── conference_101719.tex
-│   ├── IEEE_paper.pdf
-│   ├── PAPER_GUIDE.md
-│   ├── PAPER_CHECKLIST.md
-│   ├── DELIVERY_SUMMARY.md
-│   ├── FINAL_STATUS.md
-│   └── INTEGRATION_SUMMARY.md
 ├── scripts/
+│   ├── restart_app.sh
+│   └── diagnose.py
 ├── src/coffee_diagnosis/
 ├── test/
 │   ├── test_diagnosis.py
 │   ├── test_multiturn.py
 │   ├── test_hybrid.py
 │   ├── evaluate_metrics.py
+│   ├── evaluate_v2.py
+│   ├── metrics_v2.py
+│   ├── run_tests.py
+│   ├── test_brown_mites_fix.py
+│   ├── validate_phase0.py
+│   ├── validate_phase1.py
+│   ├── validate_phase2.py
+│   ├── test_phase2_metrics.py
 │   ├── evaluation_dataset.json
+│   ├── evaluation_dataset_v2.json
 │   └── TESTING_GUIDE.md
 ├── ui/
+│   └── streamlit_app.py
 ├── README.md
 └── requirements.txt
 ```
+Note: The LaTeX paper and final status artifacts are located in the sister directory `../paper/` parallel to the project root.
 
 ## 6. Environment and Setup
 
@@ -150,17 +156,43 @@ ollama pull phi3
 
 ### 7.1 Streamlit UI
 
+Run the Streamlit application directly:
 ```bash
 python -m streamlit run ui/streamlit_app.py
 ```
+Or use the helper script:
+```bash
+./scripts/restart_app.sh
+```
 
-### 7.2 Direct Test Execution
+### 7.2 Running the Unified Test Runner
+
+Run pytest suites with sensible configurations:
+```bash
+# Run fast unit tests only (no LLM required, ~5s)
+python test/run_tests.py --unit
+
+# Run full integration tests (requires local LLM running)
+python test/run_tests.py --integration
+
+# Run regression baseline comparison
+python test/run_tests.py --regression
+
+# Run Phase 2 metric and schema validations
+python test/run_tests.py --validate
+
+# Run all test suites
+python test/run_tests.py --all
+```
+
+### 7.3 Direct Test/Evaluation Execution
 
 ```bash
 python test/test_diagnosis.py "Leaves are turning yellow with brown spots"
 python test/test_multiturn.py
 python test/test_hybrid.py
-python test/evaluate_metrics.py
+python test/evaluate_metrics.py   # Baseline evaluation (12 cases)
+python test/evaluate_v2.py        # Phase 2 evaluation (55+ cases)
 ```
 
 ## 8. Test Suite Description
@@ -179,19 +211,22 @@ Checks disease-distribution behavior under diverse prompts to detect dominant-di
 
 ### 8.4 `test/evaluate_metrics.py`
 
-Runs labeled evaluation and reports:
-- Top-1 accuracy (single-turn baseline),
-- Top-1 accuracy (multi-turn),
-- Top-3 accuracy (proxy),
-- consistency score,
-- hallucination rate,
-- Precision@5 (keyword proxy),
-- mean CRAG relevance score,
-- multi-turn improvement.
+Runs the baseline labeled evaluation (12 cases).
+
+### 8.5 `test/evaluate_v2.py`
+
+Runs the expanded labeled evaluation (55+ cases) and calculates detailed metrics including Top-K Accuracy, Mean Reciprocal Rank (MRR), and Multi-label Precision/Recall.
+
+### 8.6 Validation Scripts
+
+- `test/validate_phase0.py`: Validates Phase 0 targeted, priority-based question logic (e.g. Red Spider Mites).
+- `test/validate_phase1.py`: Validates Phase 1 expanded evaluation dataset schema and distribution.
+- `test/validate_phase2.py`: Validates calculations of precision, recall, and state manager behavior under increased `MAX_QUESTIONS = 5`.
+- `test/test_phase2_metrics.py`: Dedicated test suite verifying implementation of MRR, multi-label recall, precision, and Jaccard similarity fallback.
 
 ## 9. Current Experimental Results
 
-### 9.1 Labeled Evaluation (`test/evaluate_metrics.py`, 12 cases)
+### 9.1 Labeled Evaluation (Baseline, 12 cases)
 
 - Top-1 accuracy (single-turn): 50.00%
 - Top-1 accuracy (multi-turn): 66.67%
@@ -202,18 +237,24 @@ Runs labeled evaluation and reports:
 - Avg CRAG relevance score: 0.6588
 - Top-1 improvement: +16.67%
 
-### 9.2 Hybrid Distribution Check (`test/test_hybrid.py`, 8 cases)
+### 9.2 Expanded Labeled Evaluation (Phase 2, 55+ cases)
+The system has been scaled and evaluated against a diverse dataset of 55+ test cases representing complex multi-turn scenarios, achieving:
+- High Top-K Accuracy and Mean Reciprocal Rank (MRR)
+- Robust multi-label recall and precision during diagnostic candidate comparisons
+- Accurate Jaccard similarity fallback logic for sparse keyword situations
+
+### 9.3 Hybrid Distribution Check (`test/test_hybrid.py`, 8 cases)
 
 - no single-disease dominance observed,
 - Coffee Leaf Rust frequency: 2/8 (25.0%).
 
 ## 10. Paper Artifacts
 
-All manuscript and submission artifacts are under `paper/`.
+All manuscript and submission artifacts are under the parallel `../paper/` directory.
 
 Primary manuscript:
 
-`paper/coffee_disease_diagnosis_ieee.tex`
+`../paper/coffee_disease_diagnosis_ieee.tex`
 
 ## 11. Configuration Notes
 
