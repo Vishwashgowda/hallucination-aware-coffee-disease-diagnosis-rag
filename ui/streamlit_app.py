@@ -2,7 +2,6 @@
 Streamlit UI Application
 Multi-turn Coffee Disease Diagnosis System with Hallucination Detection
 """
-
 import streamlit as st
 import os
 from pathlib import Path

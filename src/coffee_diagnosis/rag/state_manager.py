@@ -24,9 +24,25 @@ class ConversationState:
 
 
 class StateManager:
-    def __init__(self):
-        """Initialize State Manager"""
+    def __init__(self, max_questions: int = None):
+        """
+        Initialize State Manager.
+
+        Args:
+            max_questions: Hard cap on questions asked before forcing diagnosis.
+                           Defaults to settings.MAX_QUESTIONS (currently 5).
+                           Can be overridden per-instance for A/B testing.
+        """
         self.state = ConversationState()
+        self._max_questions = max_questions  # None means use settings at runtime
+
+    @property
+    def max_questions(self) -> int:
+        """Return the effective max_questions limit (instance override or global setting)."""
+        if self._max_questions is not None:
+            return self._max_questions
+        from config import settings
+        return settings.MAX_QUESTIONS
 
     def initialize(self, query: str) -> None:
         """
@@ -72,22 +88,29 @@ class StateManager:
 
     def should_stop(self) -> bool:
         """
-        Check if conversation should stop
+        Check if conversation should stop.
 
-        Conditions:
-        - confidence > 0.8 OR
-        - only 1 disease remains OR
-        - no more missing ambiguities (all info collected)
+        Stop conditions (in priority order):
+        1. Hard cap: questions_asked >= max_questions (smart cap, not always reached)
+        2. High confidence: confidence > 0.8 (enough certainty reached early)
+        3. Narrowed to 1 disease: only one candidate remains
+        4. No more missing info: all ambiguities resolved
         """
+        # Hard cap — always stop at max_questions regardless of confidence
+        if self.state.questions_asked >= self.max_questions:
+            return True
+
+        # High confidence — early stop before reaching the cap
         if self.state.confidence > 0.8:
             return True
 
+        # Narrowed to a single disease candidate
         if len(self.state.possible_diseases) == 1:
             return True
 
-        # Check if there are any missing ambiguities left
+        # No remaining missing attributes — all info collected
         missing_attrs = self.state.detected_ambiguities.get('missing', {})
-        if not missing_attrs:  # No more missing info
+        if not missing_attrs:
             return True
 
         return False
@@ -111,6 +134,7 @@ class StateManager:
             'initial_query': self.state.initial_query,
             'confidence': self.state.confidence,
             'questions_asked': self.state.questions_asked,
+            'max_questions': self.max_questions,
             'ambiguities': self.state.detected_ambiguities,
             'possible_diseases': self.state.possible_diseases,
             'history_length': len(self.state.user_responses)

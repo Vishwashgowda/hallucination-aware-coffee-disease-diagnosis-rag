@@ -29,7 +29,7 @@ RETRIEVER_TOP_K = 5
 
 # Diagnosis settings
 MIN_CONFIDENCE_THRESHOLD = 0.8
-MAX_QUESTIONS = 3
+MAX_QUESTIONS = 5  # Increased from 3 to allow more turns for complex multi-symptom diseases
 RELEVANCE_THRESHOLD = 0.3
 
 # Hallucination checker settings
